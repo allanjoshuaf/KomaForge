@@ -1,4 +1,4 @@
-"""Lanceur portable : `python extract.py`."""
+"""Lanceur portable KomaForge : `python extract.py`."""
 
 from __future__ import annotations
 

@@ -20,6 +20,7 @@ from .detection import (
     discover_pages,
     normalize_selector_input,
 )
+from .formats import create_selected_output, file_sha256, remove_validated_work_directory
 
 
 PAGE_TIMEOUT_MS = 90_000
@@ -169,17 +170,6 @@ def download_pages(
     return results, missing
 
 
-def create_pdf(files: list[Path], output_pdf: Path) -> bool:
-    try:
-        import img2pdf
-    except ImportError:
-        print("PDF ignoré : installez img2pdf avec `python -m pip install img2pdf`.")
-        return False
-    output_pdf.write_bytes(img2pdf.convert([str(path) for path in files]))
-    print(f"PDF : {output_pdf}")
-    return True
-
-
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -192,7 +182,8 @@ def run(args) -> int:
     if not Path(args.chrome).is_file():
         raise RuntimeError(f"Chrome introuvable : {args.chrome}")
     output_dir: Path = args.output
-    images_dir = output_dir / "images"
+    work_dir = output_dir / ".komaforge-work"
+    images_dir = output_dir / "images" if args.output_format == "images" else work_dir / "images"
     manifest_path = output_dir / "pages.json"
     images_dir.mkdir(parents=True, exist_ok=True)
     port = find_free_port()
@@ -304,6 +295,8 @@ def run(args) -> int:
                 "detected": len(pages),
                 "saved": len(results),
                 "missing": missing,
+                "output_format": args.output_format,
+                "quality": "original image bytes preserved; no resize",
                 "pages": results,
             }
             write_json(manifest_path, manifest)
@@ -312,11 +305,22 @@ def run(args) -> int:
                 print(f"Manifeste : {manifest_path}")
                 return 2
 
-            print(f"Images : {images_dir}")
+            ordered = [images_dir / item["file"] for item in results]
+            artifact = create_selected_output(
+                args.output_format,
+                ordered,
+                output_dir,
+                output_dir.name,
+            )
+            manifest["artifact"] = {
+                "path": artifact.name if artifact.parent == output_dir else str(artifact),
+                "sha256": file_sha256(artifact) if artifact.is_file() else None,
+            }
+            write_json(manifest_path, manifest)
+            if args.output_format != "images":
+                remove_validated_work_directory(work_dir, output_dir)
+            print(f"Résultat : {artifact}")
             print(f"Manifeste : {manifest_path}")
-            if args.pdf:
-                ordered = [images_dir / item["file"] for item in results]
-                create_pdf(ordered, output_dir / "document.pdf")
             return 0
     finally:
         if browser is not None:

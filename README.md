@@ -1,7 +1,9 @@
-# Friendly Document Extractor
+# KomaForge
 
-Un assistant en ligne de commande qui détecte les pages image d'un lecteur web,
-active si possible son mode continu et enregistre une copie contrôlée du document.
+KomaForge est un extracteur en ligne de commande pour les publications web :
+mangas, bandes dessinées, livres illustrés et documents paginés. Il ouvre une
+véritable session Chrome, détecte les pages du lecteur, puis produit exactement le
+format choisi : **CBZ, CBR, PDF, EPUB ou images**.
 
 Utilisez-le uniquement sur un site que vous contrôlez ou que vous êtes autorisé à
 archiver. L'outil ne contourne ni connexion, ni contrôle d'accès, ni protection du
@@ -19,7 +21,22 @@ site.
 - contrôle du domaine des images, de leur format, de leur taille et de leur hash ;
 - manifeste final `pages.json` avec le sélecteur et le nombre de pages validés ;
 - reprise d'une extraction déjà commencée ;
-- création facultative d'un PDF.
+- sortie unique choisie par l'utilisateur ;
+- CBZ et EPUB construits avec les images originales, sans recompression ;
+- PDF créé sans redimensionnement volontaire ;
+- CBR véritable lorsque l'outil `rar` est installé ;
+- validation du fichier final avant suppression des fichiers de travail.
+
+## Qualité et intégrité
+
+KomaForge ne convertit pas une image JPEG en PNG ou inversement pour le simple
+plaisir d'uniformiser les pages. Chaque ressource conserve son format, sa résolution
+et son hash SHA-256. Les archives CBZ et EPUB sont relues après création et chaque
+image embarquée est comparée à l'original téléchargé.
+
+Le PDF est produit avec `img2pdf`, qui encapsule les pages sans leur imposer une
+taille de papier ni un redimensionnement. Une conversion ne peut toutefois pas
+rendre une source meilleure qu'elle ne l'était sur le serveur.
 
 ## Prérequis
 
@@ -31,8 +48,9 @@ L'outil reste volontairement léger et n'installe rien tout seul.
    [guide officiel d'installation de Chrome](https://support.google.com/chrome/answer/95346?hl=fr).
 3. Une connexion Internet et les droits d'accès normaux au document visé.
 
-Documentation officielle :
-[installation de Playwright pour Python](https://playwright.dev/python/docs/library).
+Pour créer des PDF, installez l'option `pdf`. Pour créer un CBR, installez
+[WinRAR](https://www.rarlab.com/download.htm), qui fournit l'outil `rar`. CBZ ne
+demande aucun logiciel supplémentaire.
 
 ## Installation sous Windows
 
@@ -42,32 +60,29 @@ Ouvrez PowerShell dans le dossier du projet, puis :
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e .
+python -m pip install -e ".[pdf]"
 ```
 
-Cette installation ajoute la commande `document-extractor`. Le programme ouvre le
-Chrome déjà installé, exactement comme la version fonctionnelle d'origine.
+Cette installation ajoute la commande `komaforge`. L'ancien nom de commande
+`document-extractor` reste disponible pour compatibilité.
 
 ## Utilisation la plus simple
 
-Double-cliquez sur un terminal dans le dossier, puis lancez le menu :
+Ouvrez PowerShell dans le dossier, puis lancez le menu :
 
 ```powershell
-python .\extract.py
+komaforge
 ```
 
-Choisissez **Extraction automatique**, collez l'URL et laissez les autres champs
-vides. Sous Windows, les résultats sont créés dans un dossier clair à la racine du
-disque système :
+Choisissez **Extraction automatique**, collez l'URL, puis choisissez un format.
+Sous Windows, les résultats sont créés à la racine du disque système :
 
 ```text
 C:\Extractions\Manga\
 └── exemple.com-nom-du-document\
     ├── pages.json
-    ├── document.pdf
-    └── images\
-        ├── page-0001.jpg
-        └── ...
+    ├── document.cbz
+    └── pages.json
 ```
 
 Le nom `Ashkel` ou un chemin `C:\Users\...` n'est jamais codé dans le programme.
@@ -77,13 +92,13 @@ Le disque système est détecté automatiquement. Sur macOS et Linux, le dossier
 ## Commande directe
 
 ```powershell
-python .\extract.py "https://votre-site.com/document"
+komaforge "https://votre-site.com/document" --format cbz
 ```
 
 Après l'installation, cette forme fonctionne aussi :
 
 ```powershell
-document-extractor "https://votre-site.com/document"
+komaforge "https://votre-site.com/document" --format epub
 ```
 
 Ne copiez pas la syntaxe Markdown d'un lien (`[adresse](adresse)`) dans le terminal :
@@ -114,20 +129,19 @@ Options utiles :
 
 | Option | Rôle |
 |---|---|
+| `--format cbz` | Produit un seul CBZ, choix par défaut |
+| `--format cbr` | Produit un vrai CBR si `rar` est disponible |
+| `--format pdf` | Produit un PDF sans redimensionnement |
+| `--format epub` | Produit un EPUB 3 à mise en pages fixe |
+| `--format images` | Conserve les images originales dans un dossier |
 | `--expected 185` | Impose un nombre exact de pages |
 | `--selector "img.page"` | Impose le groupe d'images |
 | `--wait-for-user` | Attend une connexion manuelle dans le navigateur |
 | `--profile-dir DOSSIER` | Conserve une session dans un profil séparé |
 | `--allow-host cdn.exemple.com` | Autorise explicitement un CDN externe vérifié |
-| `--pdf` | Crée aussi `document.pdf` si l'option PDF est installée |
+| `--pdf` | Ancien alias de `--format pdf` |
 | `--chrome CHEMIN` | Utilise un autre emplacement de Chrome |
 | `--output DOSSIER` | Remplace le dossier de sortie automatique |
-
-Pour activer le PDF :
-
-```powershell
-python -m pip install -e ".[pdf]"
-```
 
 ## Détection automatique : limites assumées
 
@@ -159,8 +173,6 @@ python -m unittest tests.test_detection.EndToEndDetectionTests -v
 Ce dernier test exige automatiquement les cinq pages, l'activation du mode `full`,
 le rejet des logos et la création des fichiers contrôlés.
 
-## Avant de publier sur GitHub
+## Licence
 
-Choisissez la licence qui correspond à votre intention (par exemple MIT si vous
-voulez autoriser librement la réutilisation). Aucune licence n'est imposée par ce
-projet tant que vous n'avez pas fait ce choix.
+KomaForge est distribué sous licence MIT.
