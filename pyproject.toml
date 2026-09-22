@@ -13,11 +13,6 @@ authors = [{name = "Ashkel"}]
 keywords = ["manga", "comic", "cbz", "cbr", "epub", "extractor"]
 dependencies = ["playwright>=1.45,<2", "defusedxml>=0.7,<1"]
 
-[project.urls]
-Homepage = "https://github.com/Ashkel/KomaForge"
-Repository = "https://github.com/Ashkel/KomaForge"
-Issues = "https://github.com/Ashkel/KomaForge/issues"
-
 [project.optional-dependencies]
 pdf = ["img2pdf>=0.5.1,<1", "pikepdf>=10,<11"]
 
