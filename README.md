@@ -91,7 +91,7 @@ C:\Extractions\Manga\
     └── document.cbz
 ```
 
-Le nom `Ashkel` ou un chemin `C:\Users\...` n'est jamais codé dans le programme.
+Aucun nom d'utilisateur ni chemin de profil Windows n'est codé dans le programme.
 Le disque système est détecté automatiquement. Sur macOS et Linux, le dossier
 `extractions/manga` reste créé près du projet.
 
