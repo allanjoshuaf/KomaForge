@@ -2,6 +2,13 @@
 
 Toutes les modifications notables de KomaForge sont consignées ici.
 
+## Version locale en cours
+
+- récupération du premier chargement SSL défaillant dans Chrome ;
+- profil Calaméo avec nombre de pages et CDN vérifiés ;
+- suppression exacte de `SPECIMEN` par défaut et option répétable `--watermark-text` ;
+- remplacement du rendu Inkscape par l'impression PDF de Chrome issue du prototype validé.
+
 ## 0.3.1 - 2026-09-22
 
 - correction du test du chemin de sortie Windows pour les validations Linux ;

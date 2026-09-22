@@ -128,8 +128,11 @@ def inspect_svg(data: bytes) -> dict:
     }
 
 
-def remove_high_confidence_watermarks(data: bytes) -> tuple[bytes, list[dict]]:
-    """Retire seulement les termes exacts ayant une géométrie de filigrane fiable."""
+def remove_exact_watermarks(
+    data: bytes,
+    extra_terms: list[str] | tuple[str, ...] | None = None,
+) -> tuple[bytes, list[dict]]:
+    """Retire les éléments <text> dont le contenu correspond exactement à un terme."""
     if len(data) > 100 * 1024 * 1024:
         raise ValueError("SVG trop volumineux à traiter")
     root = SafeET.fromstring(data)
@@ -137,25 +140,46 @@ def remove_high_confidence_watermarks(data: bytes) -> tuple[bytes, list[dict]]:
     class_counts: Counter[str] = Counter(
         token for element in text_elements for token in class_tokens(element)
     )
+    requested_terms = {
+        normalized_text(term).upper()
+        for term in (extra_terms or [])
+        if normalized_text(term)
+    }
+    exact_terms = WATERMARK_TERMS | requested_terms
     removed: list[dict] = []
     for parent in root.iter():
         for element in list(parent):
             if local_name(element.tag) != "text":
                 continue
+            text = normalized_text("".join(element.itertext()))
+            if text.upper() not in exact_terms:
+                continue
             candidate = score_watermark(element, class_counts)
-            if candidate is None or candidate.confidence != "élevée":
-                continue
-            if candidate.text.upper() not in WATERMARK_TERMS:
-                continue
             parent.remove(element)
-            removed.append(asdict(candidate))
+            removed.append(
+                asdict(candidate)
+                if candidate is not None
+                else {
+                    "text": text,
+                    "classes": class_tokens(element),
+                    "transform": element.attrib.get("transform", ""),
+                    "score": 0,
+                    "confidence": "explicite",
+                    "reasons": ("texte exact demandé",),
+                }
+            )
 
     if not removed:
         return data, []
     ET.register_namespace("", "http://www.w3.org/2000/svg")
     ET.register_namespace("xlink", "http://www.w3.org/1999/xlink")
     processed = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    after = inspect_svg(processed)
-    if after["high_confidence_watermark"]:
-        raise RuntimeError("Validation échouée : un filigrane fiable subsiste.")
+    remaining = SafeET.fromstring(processed)
+    remaining_terms = {
+        normalized_text("".join(element.itertext())).upper()
+        for element in remaining.iter()
+        if local_name(element.tag) == "text"
+    }
+    if exact_terms & remaining_terms:
+        raise RuntimeError("Validation échouée : un texte de filigrane subsiste.")
     return processed, removed

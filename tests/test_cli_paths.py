@@ -73,6 +73,7 @@ class PortablePathTests(unittest.TestCase):
                 "--retries",
                 "--max-image-mb",
                 "--watermarks",
+                "--watermark-text",
                 "--format",
                 "--pdf",
                 "--allow-partial",
@@ -109,6 +110,7 @@ class PortablePathTests(unittest.TestCase):
         self.assertFalse(configured.pdf)
         self.assertEqual(configured.output_format, "cbz")
         self.assertFalse(configured.wait_for_user)
+        self.assertEqual(configured.watermarks, "remove")
 
     def test_direct_cli_selects_one_output_format(self):
         args = parse_args(["https://example.test/book/7", "--format", "epub"])

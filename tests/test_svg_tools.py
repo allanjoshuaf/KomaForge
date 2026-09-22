@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from document_extractor.svg_tools import inspect_svg, remove_high_confidence_watermarks
+from document_extractor.svg_tools import inspect_svg, remove_exact_watermarks
 
 
 SVG_WITH_SPECIMEN = b'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 1600">
@@ -37,7 +37,7 @@ class SvgInspectionTests(unittest.TestCase):
         self.assertEqual(report["watermark_candidates"], [])
 
     def test_removal_is_targeted_and_does_not_depend_on_last_text(self):
-        processed, removed = remove_high_confidence_watermarks(SVG_WITH_SPECIMEN)
+        processed, removed = remove_exact_watermarks(SVG_WITH_SPECIMEN)
         self.assertEqual([item["text"] for item in removed], ["SPECIMEN"])
         self.assertNotIn(b"SPECIMEN", processed)
         self.assertIn(b"Texte normal", processed)
@@ -45,6 +45,13 @@ class SvgInspectionTests(unittest.TestCase):
         self.assertEqual(report["text_count"], 1)
         self.assertEqual(report["embedded_images"], 1)
         self.assertFalse(report["high_confidence_watermark"])
+
+    def test_explicit_exact_text_does_not_need_a_confidence_score(self):
+        source = b'<svg xmlns="http://www.w3.org/2000/svg"><text>MON FILIGRANE</text><text>Texte normal</text></svg>'
+        processed, removed = remove_exact_watermarks(source, ["MON FILIGRANE"])
+        self.assertEqual([item["text"] for item in removed], ["MON FILIGRANE"])
+        self.assertNotIn(b"MON FILIGRANE", processed)
+        self.assertIn(b"Texte normal", processed)
 
 
 if __name__ == "__main__":

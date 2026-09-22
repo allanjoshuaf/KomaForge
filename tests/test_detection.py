@@ -12,6 +12,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from document_extractor.detection import normalize_selector_input
+from document_extractor.engine import navigate_to_source
 from tests.mock_site import MockDocumentHandler
 
 
@@ -32,6 +33,70 @@ class SelectorInputTests(unittest.TestCase):
             normalize_selector_input('<img class="ts-main-image lazy" ...>'),
             "img.ts-main-image.lazy",
         )
+
+
+class FakePage:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = []
+        self.url = "about:blank"
+        self.closed = False
+
+    def goto(self, url, **_kwargs):
+        self.calls.append(url)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        self.url = outcome
+        return object()
+
+    def close(self):
+        self.closed = True
+
+
+class FakeContext:
+    def __init__(self, pages):
+        self.pages_to_create = list(pages)
+
+    def new_page(self):
+        return self.pages_to_create.pop(0)
+
+
+class NavigationRecoveryTests(unittest.TestCase):
+    def test_transient_navigation_error_is_retried_in_a_clean_page(self):
+        url = "https://example.test/book"
+        failed = FakePage([RuntimeError("net::ERR_CONNECTION_RESET")])
+        recovered = FakePage([url])
+
+        result = navigate_to_source(FakeContext([recovered]), failed, url, retries=2)
+
+        self.assertIs(result, recovered)
+        self.assertTrue(failed.closed)
+        self.assertEqual(recovered.calls, [url])
+
+    def test_ssl_recovery_warms_only_origin_then_reopens_target(self):
+        url = "https://www.calameo.com/read/book-id?private=value"
+        failed = FakePage([RuntimeError("net::ERR_SSL_PROTOCOL_ERROR")])
+        recovered = FakePage(["https://www.calameo.com/", url])
+
+        result = navigate_to_source(FakeContext([recovered]), failed, url)
+
+        self.assertIs(result, recovered)
+        self.assertTrue(failed.closed)
+        self.assertEqual(
+            recovered.calls,
+            ["http://www.calameo.com/", url],
+        )
+
+    def test_ssl_recovery_rejects_a_redirect_to_another_host(self):
+        url = "https://example.test/book"
+        failed = FakePage([RuntimeError("net::ERR_SSL_PROTOCOL_ERROR")])
+        unsafe = FakePage(["https://different.test/"])
+
+        with self.assertRaisesRegex(RuntimeError, "Impossible d'ouvrir"):
+            navigate_to_source(FakeContext([unsafe]), failed, url, retries=1)
+
+        self.assertEqual(unsafe.calls, ["http://example.test/"])
 
 
 @unittest.skipUnless(os.environ.get("RUN_EXTRACTOR_E2E") == "1", "test navigateur facultatif")

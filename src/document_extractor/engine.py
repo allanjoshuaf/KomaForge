@@ -21,8 +21,9 @@ from .detection import (
     normalize_selector_input,
 )
 from .formats import create_selected_output, file_sha256, remove_validated_work_directory
+from .providers import discover_provider
 from .resources import detect_resource, is_page_resource, resource_from_url_value
-from .svg_tools import inspect_svg, remove_high_confidence_watermarks
+from .svg_tools import inspect_svg, remove_exact_watermarks
 
 
 PAGE_TIMEOUT_MS = 90_000
@@ -80,6 +81,91 @@ def valid_existing_file(path: Path) -> bool:
         return False
 
 
+def _replace_failed_page(context, page):
+    replacement = context.new_page()
+    try:
+        page.close()
+    except Exception:
+        pass
+    return replacement
+
+
+def _http_origin_warmup_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.port is not None
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    return f"http://{parsed.hostname}/"
+
+
+def navigate_to_source(context, page, url: str, retries: int = 3):
+    """Open the source and recover from a Chromium SSL false start.
+
+    Some filtered Windows networks return ERR_SSL_PROTOCOL_ERROR for the first
+    direct Chromium request while accepting the site's HTTP -> HTTPS redirect.
+    The recovery request contains only the origin, never the document path or
+    query, and it must land on HTTPS on the same host before the source URL is
+    tried again.
+    """
+
+    attempts = max(1, retries)
+    target = urlparse(url)
+    warmup_url = _http_origin_warmup_url(url)
+    last_error: Exception | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+            return page
+        except Exception as exc:
+            last_error = exc
+            print(f"[NAVIGATION {attempt}/{attempts}] {str(exc).splitlines()[0]}")
+
+            if "ERR_SSL_PROTOCOL_ERROR" in str(exc) and warmup_url:
+                page = _replace_failed_page(context, page)
+                try:
+                    print("Récupération SSL : initialisation sécurisée du domaine...")
+                    page.goto(
+                        warmup_url,
+                        wait_until="domcontentloaded",
+                        timeout=PAGE_TIMEOUT_MS,
+                    )
+                    landed = urlparse(page.url)
+                    if (
+                        landed.scheme != "https"
+                        or landed.hostname != target.hostname
+                    ):
+                        raise RuntimeError(
+                            "le domaine n'a pas redirigé vers le même hôte en HTTPS"
+                        )
+                    page.goto(
+                        url,
+                        wait_until="domcontentloaded",
+                        timeout=PAGE_TIMEOUT_MS,
+                    )
+                    print("Récupération SSL réussie.")
+                    return page
+                except Exception as recovery_error:
+                    last_error = recovery_error
+                    print(
+                        "Récupération SSL échouée : "
+                        f"{str(recovery_error).splitlines()[0]}"
+                    )
+
+            if attempt < attempts:
+                time.sleep(min(2 ** (attempt - 1), 8))
+                page = _replace_failed_page(context, page)
+
+    raise RuntimeError(
+        f"Impossible d'ouvrir le document après {attempts} tentative(s)."
+    ) from last_error
+
+
 def download_pages(
     context,
     pages: list[dict],
@@ -89,6 +175,7 @@ def download_pages(
     retries: int,
     max_image_bytes: int,
     watermark_policy: str,
+    watermark_texts: list[str],
 ) -> tuple[list[dict], list[int]]:
     results: list[dict] = []
     missing: list[int] = []
@@ -156,8 +243,11 @@ def download_pages(
                 removed_watermarks: list[dict] = []
                 if resource.kind == "svg":
                     svg_report = inspect_svg(output_data)
-                    if watermark_policy == "remove" and svg_report["high_confidence_watermark"]:
-                        output_data, removed_watermarks = remove_high_confidence_watermarks(output_data)
+                    if watermark_policy == "remove":
+                        output_data, removed_watermarks = remove_exact_watermarks(
+                            output_data,
+                            watermark_texts,
+                        )
                         svg_report = {
                             "before": svg_report,
                             "after": inspect_svg(output_data),
@@ -239,7 +329,12 @@ def run(args) -> int:
             page = context.pages[0] if context.pages else context.new_page()
 
             print(f"Ouverture : {args.url}")
-            page.goto(args.url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+            page = navigate_to_source(context, page, args.url, args.retries)
+
+            provider = None if selector else discover_provider(context, page, args.url)
+            if provider:
+                allowed_hosts.update(provider.allowed_hosts)
+                print(f"Profil du site : {provider.name}")
 
             if args.wait_for_user:
                 input(
@@ -251,11 +346,18 @@ def run(args) -> int:
                     state="visible", timeout=PAGE_TIMEOUT_MS
                 )
 
-            reading_mode = activate_reading_mode(
-                page,
-                args.reading_mode_selector,
-                args.reading_mode_value,
-                True,
+            reading_mode = (
+                {
+                    "action": "aucun contrôle requis",
+                    "source": f"profil {provider.name}",
+                }
+                if provider and not args.reading_mode_selector
+                else activate_reading_mode(
+                    page,
+                    args.reading_mode_selector,
+                    args.reading_mode_value,
+                    True,
+                )
             )
             if reading_mode:
                 print(f"Mode de lecture : {reading_mode['action']}")
@@ -263,13 +365,17 @@ def run(args) -> int:
             expected_info = (
                 ExpectedCount(args.expected, "option --expected", "élevée")
                 if args.expected
+                else provider.expected if provider
                 else detect_expected_count(page)
             )
-            pages, selector_used = discover_pages(
-                page,
-                selector,
-                expected_info.value if expected_info else None,
-            )
+            if provider:
+                pages, selector_used = provider.pages, f"profil:{provider.name}"
+            else:
+                pages, selector_used = discover_pages(
+                    page,
+                    selector,
+                    expected_info.value if expected_info else None,
+                )
             if expected_info is None:
                 try:
                     indices = sorted(int(item["document_index"]) for item in pages)
@@ -310,9 +416,14 @@ def run(args) -> int:
                 retries=args.retries,
                 max_image_bytes=args.max_image_mb * 1024 * 1024,
                 watermark_policy=args.watermarks,
+                watermark_texts=args.watermark_text,
+            )
+            removed_total = sum(
+                int(item.get("watermarks_removed") or 0) for item in results
             )
             manifest = {
                 "source_url": args.url,
+                "provider": provider.name if provider else None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "reading_mode": reading_mode,
                 "selector": selector_used,
@@ -322,8 +433,14 @@ def run(args) -> int:
                 "saved": len(results),
                 "missing": missing,
                 "output_format": args.output_format,
-                "quality": "original image bytes preserved; no resize",
+                "quality": (
+                    "SVG source preserved except exact watermark text; no resize"
+                    if removed_total
+                    else "original page bytes preserved; no resize"
+                ),
                 "watermark_policy": args.watermarks,
+                "watermark_texts": args.watermark_text,
+                "watermarks_removed": removed_total,
                 "pages": results,
             }
             write_json(manifest_path, manifest)
@@ -338,6 +455,7 @@ def run(args) -> int:
                 ordered,
                 output_dir,
                 output_dir.name,
+                chrome_executable=Path(args.chrome),
             )
             manifest["artifact"] = {
                 "path": artifact.name if artifact.parent == output_dir else str(artifact),
