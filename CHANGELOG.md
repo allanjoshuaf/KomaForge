@@ -2,6 +2,12 @@
 
 Toutes les modifications notables de KomaForge sont consignées ici.
 
+## 0.3.1 - 2026-09-22
+
+- correction du test du chemin de sortie Windows pour les validations Linux ;
+- mise à jour des actions GitHub vers leurs versions actuelles ;
+- validation de la branche principale et des demandes de fusion, sans doublon lors de la création d'une étiquette de version.
+
 ## 0.3.0 - 2026-09-22
 
 - identification des ressources par signature plutôt que par extension ;

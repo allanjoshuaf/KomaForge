@@ -88,8 +88,7 @@ Sous Windows, les résultats sont créés à la racine du disque système :
 C:\Extractions\Manga\
 └── exemple.com-nom-du-document\
     ├── pages.json
-    ├── document.cbz
-    └── pages.json
+    └── document.cbz
 ```
 
 Le nom `Ashkel` ou un chemin `C:\Users\...` n'est jamais codé dans le programme.
@@ -153,6 +152,11 @@ Options utiles :
 | `--output DOSSIER` | Remplace le dossier de sortie automatique |
 
 ## Détection automatique : limites assumées
+
+L'URL reste l'entrée principale : KomaForge inspecte le lecteur réellement ouvert
+au lieu d'imposer une liste de sites qui deviendrait vite obsolète. Des profils de
+sites pourront compléter cette détection plus tard, mais ils resteront des aides
+facultatives et remplaçables, jamais une condition pour essayer une URL inconnue.
 
 L'outil n'invente pas un nombre de pages. S'il ne trouve aucune preuve fiable, il
 affiche `Pages attendues : non déductibles automatiquement`; vous pouvez alors
