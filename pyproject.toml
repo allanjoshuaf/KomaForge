@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "komaforge"
-version = "0.3.0"
-description = "Extracteur CLI de publications web vers CBZ, PDF, EPUB ou images"
+version = "0.3.1"
+description = "Extracteur CLI de publications web vers CBZ, CBR, PDF, EPUB ou images"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}

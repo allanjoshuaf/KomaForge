@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+from . import __version__
 from .paths import default_output_dir
 from .formats import OUTPUT_FORMATS
 
@@ -19,6 +20,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Détecte et enregistre les pages image d'un document publié sur "
             "un site que vous contrôlez ou êtes autorisé à archiver."
         ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "url",

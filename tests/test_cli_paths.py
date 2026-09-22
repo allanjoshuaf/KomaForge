@@ -11,6 +11,13 @@ from document_extractor.paths import default_output_dir, safe_slug
 
 
 class PortablePathTests(unittest.TestCase):
+    def test_version_is_available_without_a_url(self):
+        with self.assertRaises(SystemExit) as exit_context:
+            with patch("sys.stdout") as stdout:
+                build_parser().parse_args(["--version"])
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertIn("komaforge 0.3.1", stdout.write.call_args.args[0])
+
     def test_slug_is_portable(self):
         self.assertEqual(safe_slug("Page spéciale / 185"), "Page-sp-ciale-185")
 
@@ -24,6 +31,7 @@ class PortablePathTests(unittest.TestCase):
                 (Path(temp) / "extractions" / "votre-site.example-42").resolve(),
             )
 
+    @unittest.skipUnless(os.name == "nt", "chemin propre a Windows")
     def test_direct_cli_uses_the_system_drive_on_windows(self):
         with patch.dict(os.environ, {"SystemDrive": "C:"}):
             args = parse_args(["https://example.test/book/7"])
@@ -51,6 +59,7 @@ class PortablePathTests(unittest.TestCase):
         self.assertEqual(
             options,
             {
+                "--version",
                 "--selector",
                 "--expected",
                 "--output",
