@@ -295,6 +295,10 @@ def activate_reading_mode(
     )
     if not candidate:
         return None
+    if candidate["kind"] == "button" and re.search(
+        r"\b(fullscreen|full screen|plein ecran)\b", candidate.get("label", "")
+    ):
+        return None
     threshold = 10 if candidate["kind"] == "select" else 12
     if candidate["score"] < threshold:
         return None

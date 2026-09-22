@@ -58,11 +58,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--watermarks",
         choices=("detect", "remove"),
-        default="detect",
+        default="remove",
         help=(
-            "SVG : détecter les filigranes, ou retirer automatiquement seulement "
-            "les candidats à confiance élevée sur des documents autorisés"
+            "SVG : retirer par défaut les textes exacts de filigrane connus, "
+            "ou utiliser detect pour ne rien modifier"
         ),
+    )
+    parser.add_argument(
+        "--watermark-text",
+        action="append",
+        default=[],
+        help="Texte SVG exact à retirer; l'option peut être répétée",
     )
     return parser
 
@@ -121,11 +127,14 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
                 input("Valeur du mode lecture [clic automatique] : ").strip() or None
             )
         args.watermarks = (
-            input("Filigranes SVG [detect/remove, défaut detect] : ").strip().lower()
-            or "detect"
+            input("Filigranes SVG [remove/detect, défaut remove] : ").strip().lower()
+            or "remove"
         )
         if args.watermarks not in {"detect", "remove"}:
             raise SystemExit("Politique de filigrane invalide.")
+        exact_texts = input("Texte exact supplémentaire à retirer [aucun] : ").strip()
+        if exact_texts:
+            args.watermark_text.append(exact_texts)
     return args
 
 

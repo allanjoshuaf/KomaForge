@@ -15,7 +15,7 @@ from document_extractor.formats import (
     create_cbz,
     create_epub,
     create_pdf,
-    find_inkscape_executable,
+    find_chrome_executable,
     create_selected_output,
     remove_validated_work_directory,
 )
@@ -89,8 +89,8 @@ class OutputFormatTests(unittest.TestCase):
     @unittest.skipUnless(
         importlib.util.find_spec("img2pdf")
         and importlib.util.find_spec("pikepdf")
-        and find_inkscape_executable(),
-        "Inkscape/img2pdf/pikepdf indisponible",
+        and find_chrome_executable(),
+        "Chrome/img2pdf/pikepdf indisponible",
     )
     def test_svg_pdf_keeps_a_vector_page(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -107,6 +107,15 @@ class OutputFormatTests(unittest.TestCase):
             output = create_pdf([page], root / "document.pdf")
             with pikepdf.Pdf.open(output) as pdf:
                 self.assertEqual(len(pdf.pages), 1)
+
+    def test_no_inkscape_dependency_remains(self):
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "document_extractor"
+            / "formats.py"
+        ).read_text(encoding="utf-8").lower()
+        self.assertNotIn("inkscape", source)
 
     def test_images_output_returns_original_directory(self):
         with tempfile.TemporaryDirectory() as temp:

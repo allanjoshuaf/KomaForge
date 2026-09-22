@@ -55,9 +55,9 @@ Pour créer des PDF, installez l'option `pdf`. Pour créer un CBR, installez
 [WinRAR](https://www.rarlab.com/download.htm), qui fournit l'outil `rar`. CBZ ne
 demande aucun logiciel supplémentaire.
 
-Les documents SVG exportés en PDF demandent également
-[Inkscape](https://inkscape.org/release/), afin de conserver leurs textes et tracés
-en vectoriel au lieu de les transformer silencieusement en pixels.
+Les documents SVG exportés en PDF sont rendus avec Google Chrome, comme dans le
+lecteur web. Inkscape n'est pas utilisé, car son moteur peut déplacer les textes et
+les polices intégrées de certaines publications.
 
 ## Installation sous Windows
 
@@ -140,8 +140,9 @@ Options utiles :
 | `--format pdf` | Produit un PDF sans redimensionnement |
 | `--format epub` | Produit un EPUB 3 à mise en pages fixe |
 | `--format images` | Conserve les images originales dans un dossier |
-| `--watermarks detect` | Détecte et documente les filigranes SVG sans modifier la page |
-| `--watermarks remove` | Retire sans question les seuls candidats SVG à confiance élevée |
+| `--watermarks remove` | Retire par défaut les textes exacts de filigrane connus |
+| `--watermarks detect` | Détecte et documente sans modifier la page |
+| `--watermark-text "SPECIMEN"` | Retire exactement ce texte; option répétable |
 | `--expected 185` | Impose un nombre exact de pages |
 | `--selector "img.page"` | Impose le groupe d'images |
 | `--wait-for-user` | Attend une connexion manuelle dans le navigateur |
@@ -173,11 +174,12 @@ KomaForge vérifie les octets réels d'une ressource plutôt que de croire son
 extension. Un fichier `.svgz` réellement compressé est décompressé; un serveur qui
 renvoie directement du XML SVG sous cette extension est également accepté.
 
-La détection des filigranes ne repose jamais sur « le dernier texte ». Elle combine
-un terme explicite, la rareté de ses classes, une transformation diagonale et sa
-largeur. Le mode par défaut `detect` ne modifie rien. Le mode `remove` est réservé
-aux documents que vous possédez ou êtes autorisé à transformer; il ne retire que
-les candidats à confiance élevée et valide le SVG après traitement.
+La détection des filigranes ne repose jamais sur « le dernier texte ». Le mode par
+défaut `remove` reprend le comportement fiable du script d'origine : il retire un
+élément `<text>` seulement lorsque son contenu correspond exactement à un terme
+connu comme `SPECIMEN`. `--watermark-text` permet d'ajouter librement un texte exact.
+Le mode `detect` conserve tout. Le retrait reste réservé aux documents que vous
+possédez ou êtes autorisé à transformer, et le SVG est validé après traitement.
 
 ## Tests avant publication
 

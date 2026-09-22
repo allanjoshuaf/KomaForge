@@ -5,6 +5,7 @@ import html
 import shutil
 import subprocess
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -112,7 +113,11 @@ def create_cbr(files: list[Path], output_path: Path) -> Path:
         raise
 
 
-def create_pdf(files: list[Path], output_path: Path) -> Path:
+def create_pdf(
+    files: list[Path],
+    output_path: Path,
+    chrome_executable: Path | None = None,
+) -> Path:
     """Encapsule les images sans redimensionnement et conserve les SVG en vectoriel."""
     try:
         import img2pdf
@@ -123,7 +128,7 @@ def create_pdf(files: list[Path], output_path: Path) -> Path:
 
     svg_present = any(path.suffix.lower() == ".svg" for path in files)
     if svg_present:
-        return _create_mixed_pdf(files, output_path, img2pdf)
+        return _create_mixed_pdf(files, output_path, img2pdf, chrome_executable)
 
     partial = _atomic_target(output_path)
     partial.unlink(missing_ok=True)
@@ -138,23 +143,66 @@ def create_pdf(files: list[Path], output_path: Path) -> Path:
         raise
 
 
-def find_inkscape_executable() -> Path | None:
-    discovered = shutil.which("inkscape") or shutil.which("inkscape.exe")
+def find_chrome_executable() -> Path | None:
+    discovered = shutil.which("chrome") or shutil.which("chrome.exe")
     if discovered:
         return Path(discovered)
     candidates = (
-        Path(r"C:\Program Files\Inkscape\bin\inkscape.exe"),
-        Path(r"C:\Program Files\Inkscape\inkscape.exe"),
+        Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
     )
     return next((path for path in candidates if path.is_file()), None)
 
 
-def _create_mixed_pdf(files: list[Path], output_path: Path, img2pdf) -> Path:
-    inkscape = find_inkscape_executable()
-    if inkscape is None:
+def _render_svg_pdf_with_chrome(
+    chrome: Path,
+    source: Path,
+    page_pdf: Path,
+    profile_dir: Path,
+) -> None:
+    result = subprocess.run(
+        [
+            str(chrome),
+            "--headless=new",
+            "--disable-gpu",
+            "--no-pdf-header-footer",
+            "--no-first-run",
+            f"--user-data-dir={profile_dir}",
+            f"--print-to-pdf={page_pdf}",
+            source.resolve().as_uri(),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    deadline = time.time() + 10
+    while time.time() < deadline and not page_pdf.is_file():
+        time.sleep(0.1)
+    if (
+        result.returncode != 0
+        or not page_pdf.is_file()
+        or page_pdf.stat().st_size == 0
+        or page_pdf.read_bytes()[:5] != b"%PDF-"
+    ):
+        details = (result.stderr or result.stdout).strip()
         raise RuntimeError(
-            "Le PDF contient des pages SVG. Installez Inkscape pour les conserver "
-            "en vectoriel, ou choisissez EPUB/images."
+            f"Échec du rendu Chrome de {source.name} : "
+            f"{details or result.returncode}"
+        )
+
+
+def _create_mixed_pdf(
+    files: list[Path],
+    output_path: Path,
+    img2pdf,
+    chrome_executable: Path | None,
+) -> Path:
+    chrome = chrome_executable or find_chrome_executable()
+    if chrome is None or not chrome.is_file():
+        raise RuntimeError(
+            "Le PDF contient des pages SVG et demande Google Chrome pour les rendre "
+            "fidèlement."
         )
     try:
         import pikepdf
@@ -172,23 +220,12 @@ def _create_mixed_pdf(files: list[Path], output_path: Path, img2pdf) -> Path:
             for index, source in enumerate(files, start=1):
                 page_pdf = temp_dir / f"page-{index:04d}.pdf"
                 if source.suffix.lower() == ".svg":
-                    result = subprocess.run(
-                        [
-                            str(inkscape),
-                            str(source),
-                            "--export-type=pdf",
-                            f"--export-filename={page_pdf}",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        check=False,
+                    _render_svg_pdf_with_chrome(
+                        chrome,
+                        source,
+                        page_pdf,
+                        temp_dir / f"chrome-profile-{index:04d}",
                     )
-                    if result.returncode != 0 or not page_pdf.is_file():
-                        details = (result.stderr or result.stdout).strip()
-                        raise RuntimeError(
-                            f"Échec du rendu vectoriel de {source.name} : "
-                            f"{details or result.returncode}"
-                        )
                 else:
                     page_pdf.write_bytes(img2pdf.convert(str(source)))
                 page_pdfs.append(page_pdf)
@@ -335,6 +372,7 @@ def create_selected_output(
     files: list[Path],
     output_dir: Path,
     title: str,
+    chrome_executable: Path | None = None,
 ) -> Path:
     if not files:
         raise RuntimeError("Aucune page à exporter.")
@@ -346,7 +384,7 @@ def create_selected_output(
     if output_format == "cbr":
         return create_cbr(files, output_path)
     if output_format == "pdf":
-        return create_pdf(files, output_path)
+        return create_pdf(files, output_path, chrome_executable)
     if output_format == "epub":
         return create_epub(files, output_path, title)
     raise ValueError(f"Format non pris en charge : {output_format}")
