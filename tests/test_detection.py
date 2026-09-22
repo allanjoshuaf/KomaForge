@@ -15,6 +15,14 @@ from document_extractor.detection import normalize_selector_input
 from tests.mock_site import MockDocumentHandler
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        _type, error, _traceback = sys.exc_info()
+        if isinstance(error, (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class SelectorInputTests(unittest.TestCase):
     def test_css_selector_is_unchanged(self):
         self.assertEqual(normalize_selector_input("img.ts-main-image"), "img.ts-main-image")
@@ -30,7 +38,7 @@ class SelectorInputTests(unittest.TestCase):
 class EndToEndDetectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), MockDocumentHandler)
+        cls.server = QuietThreadingHTTPServer(("127.0.0.1", 0), MockDocumentHandler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
 
@@ -110,6 +118,48 @@ class EndToEndDetectionTests(unittest.TestCase):
             work_images = Path(temp) / ".komaforge-work" / "images"
             self.assertTrue(work_images.is_dir())
             self.assertEqual(list(work_images.iterdir()), [])
+
+    def test_svgz_detection_and_targeted_watermark_removal(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/svg-document"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--output",
+                    temp,
+                    "--format",
+                    "images",
+                    "--watermarks",
+                    "remove",
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            output = Path(temp)
+            pages = sorted((output / "images").glob("page-*.svg"))
+            self.assertEqual(len(pages), 2)
+            for page in pages:
+                data = page.read_bytes()
+                self.assertNotIn(b"SPECIMEN", data)
+                self.assertIn(b"Page de test", data)
+            manifest = json.loads((output / "pages.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["watermark_policy"], "remove")
+            self.assertEqual(
+                [page["watermarks_removed"] for page in manifest["pages"]],
+                [1, 1],
+            )
+            self.assertIn("non compressé", manifest["pages"][0]["normalization"])
+            self.assertEqual(manifest["pages"][1]["normalization"], "gzip vers svg")
 
 
 if __name__ == "__main__":

@@ -49,6 +49,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--allow-partial", action="store_true")
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--max-image-mb", type=int, default=50)
+    parser.add_argument(
+        "--watermarks",
+        choices=("detect", "remove"),
+        default="detect",
+        help=(
+            "SVG : détecter les filigranes, ou retirer automatiquement seulement "
+            "les candidats à confiance élevée sur des documents autorisés"
+        ),
+    )
     return parser
 
 
@@ -105,6 +114,12 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
             args.reading_mode_value = (
                 input("Valeur du mode lecture [clic automatique] : ").strip() or None
             )
+        args.watermarks = (
+            input("Filigranes SVG [detect/remove, défaut detect] : ").strip().lower()
+            or "detect"
+        )
+        if args.watermarks not in {"detect", "remove"}:
+            raise SystemExit("Politique de filigrane invalide.")
     return args
 
 

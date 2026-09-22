@@ -15,6 +15,7 @@ from document_extractor.formats import (
     create_cbz,
     create_epub,
     create_pdf,
+    find_inkscape_executable,
     create_selected_output,
     remove_validated_work_directory,
 )
@@ -84,6 +85,28 @@ class OutputFormatTests(unittest.TestCase):
             output = create_pdf([page], root / "document.pdf")
             self.assertTrue(output.read_bytes().startswith(b"%PDF-"))
             self.assertGreater(output.stat().st_size, len(PNG_1X1))
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("img2pdf")
+        and importlib.util.find_spec("pikepdf")
+        and find_inkscape_executable(),
+        "Inkscape/img2pdf/pikepdf indisponible",
+    )
+    def test_svg_pdf_keeps_a_vector_page(self):
+        with tempfile.TemporaryDirectory() as temp:
+            import pikepdf
+
+            root = Path(temp)
+            page = root / "page-0001.svg"
+            page.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1600">'
+                '<rect width="1200" height="1600" fill="white"/>'
+                '<text x="100" y="200">Texte vectoriel</text></svg>',
+                encoding="utf-8",
+            )
+            output = create_pdf([page], root / "document.pdf")
+            with pikepdf.Pdf.open(output) as pdf:
+                self.assertEqual(len(pdf.pages), 1)
 
     def test_images_output_returns_original_directory(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import base64
+import gzip
 from http.server import BaseHTTPRequestHandler
 
 
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+
+SVG = b'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1600">
+<rect width="1200" height="1600" fill="white"/>
+<text class="mark unique" transform="matrix(2 -2 2 2 140 1380)" textLength="520">SPECIMEN</text>
+<text class="body" transform="matrix(1 0 0 1 80 100)">Page de test</text>
+</svg>'''
 
 
 class MockDocumentHandler(BaseHTTPRequestHandler):
@@ -47,6 +54,41 @@ class MockDocumentHandler(BaseHTTPRequestHandler):
 </body></html>"""
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/svg-document":
+            body = b"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Lecteur SVGZ test</title></head>
+<body>
+  <span id="page-counter">Page 1 sur 2</span>
+  <main id="reader">
+    <img class="svg-page" data-src="/svg/page-001.svgz" data-index="0" width="1200" height="1600">
+    <img class="svg-page" data-src="/svg/page-002.svgz" data-index="1" width="1200" height="1600">
+  </main>
+</body></html>"""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/svg/page-001.svgz":
+            body = SVG
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/svg/page-002.svgz":
+            body = gzip.compress(SVG)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
