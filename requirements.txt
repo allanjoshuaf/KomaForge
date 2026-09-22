@@ -1,2 +1,2 @@
 playwright>=1.45,<2
-
+defusedxml>=0.7,<1

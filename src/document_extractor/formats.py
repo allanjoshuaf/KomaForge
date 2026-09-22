@@ -113,7 +113,7 @@ def create_cbr(files: list[Path], output_path: Path) -> Path:
 
 
 def create_pdf(files: list[Path], output_path: Path) -> Path:
-    """Encapsule les pages sans redimensionnement avec img2pdf."""
+    """Encapsule les images sans redimensionnement et conserve les SVG en vectoriel."""
     try:
         import img2pdf
     except ImportError as exc:
@@ -121,12 +121,94 @@ def create_pdf(files: list[Path], output_path: Path) -> Path:
             "Le format PDF demande img2pdf : `python -m pip install -e \".[pdf]\"`."
         ) from exc
 
+    svg_present = any(path.suffix.lower() == ".svg" for path in files)
+    if svg_present:
+        return _create_mixed_pdf(files, output_path, img2pdf)
+
     partial = _atomic_target(output_path)
     partial.unlink(missing_ok=True)
     try:
         partial.write_bytes(img2pdf.convert([str(path) for path in files]))
         if not partial.read_bytes()[:5] == b"%PDF-":
             raise RuntimeError("Le PDF produit est invalide.")
+        _replace_atomic(partial, output_path)
+        return output_path
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
+
+
+def find_inkscape_executable() -> Path | None:
+    discovered = shutil.which("inkscape") or shutil.which("inkscape.exe")
+    if discovered:
+        return Path(discovered)
+    candidates = (
+        Path(r"C:\Program Files\Inkscape\bin\inkscape.exe"),
+        Path(r"C:\Program Files\Inkscape\inkscape.exe"),
+    )
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def _create_mixed_pdf(files: list[Path], output_path: Path, img2pdf) -> Path:
+    inkscape = find_inkscape_executable()
+    if inkscape is None:
+        raise RuntimeError(
+            "Le PDF contient des pages SVG. Installez Inkscape pour les conserver "
+            "en vectoriel, ou choisissez EPUB/images."
+        )
+    try:
+        import pikepdf
+    except ImportError as exc:
+        raise RuntimeError(
+            "Le PDF SVG demande pikepdf : `python -m pip install -e \".[pdf]\"`."
+        ) from exc
+
+    partial = _atomic_target(output_path)
+    partial.unlink(missing_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="komaforge-pdf-pages-") as temp:
+            temp_dir = Path(temp)
+            page_pdfs: list[Path] = []
+            for index, source in enumerate(files, start=1):
+                page_pdf = temp_dir / f"page-{index:04d}.pdf"
+                if source.suffix.lower() == ".svg":
+                    result = subprocess.run(
+                        [
+                            str(inkscape),
+                            str(source),
+                            "--export-type=pdf",
+                            f"--export-filename={page_pdf}",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if result.returncode != 0 or not page_pdf.is_file():
+                        details = (result.stderr or result.stdout).strip()
+                        raise RuntimeError(
+                            f"Échec du rendu vectoriel de {source.name} : "
+                            f"{details or result.returncode}"
+                        )
+                else:
+                    page_pdf.write_bytes(img2pdf.convert(str(source)))
+                page_pdfs.append(page_pdf)
+
+            output = pikepdf.Pdf.new()
+            sources = []
+            try:
+                for page_pdf in page_pdfs:
+                    source_pdf = pikepdf.Pdf.open(page_pdf)
+                    sources.append(source_pdf)
+                    output.pages.extend(source_pdf.pages)
+                output.save(partial)
+            finally:
+                for source_pdf in sources:
+                    source_pdf.close()
+                output.close()
+
+        with pikepdf.Pdf.open(partial) as verification:
+            if len(verification.pages) != len(files):
+                raise RuntimeError("Le PDF final ne contient pas toutes les pages.")
         _replace_atomic(partial, output_path)
         return output_path
     except Exception:

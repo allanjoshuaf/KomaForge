@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "komaforge"
-version = "0.2.0"
+version = "0.3.0"
 description = "Extracteur CLI de publications web vers CBZ, PDF, EPUB ou images"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [{name = "Ashkel"}]
 keywords = ["manga", "comic", "cbz", "cbr", "epub", "extractor"]
-dependencies = ["playwright>=1.45,<2"]
+dependencies = ["playwright>=1.45,<2", "defusedxml>=0.7,<1"]
 
 [project.urls]
 Homepage = "https://github.com/Ashkel/KomaForge"
@@ -19,7 +19,7 @@ Repository = "https://github.com/Ashkel/KomaForge"
 Issues = "https://github.com/Ashkel/KomaForge/issues"
 
 [project.optional-dependencies]
-pdf = ["img2pdf>=0.5.1,<1"]
+pdf = ["img2pdf>=0.5.1,<1", "pikepdf>=10,<11"]
 
 [project.scripts]
 komaforge = "document_extractor.cli:main"

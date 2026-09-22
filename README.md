@@ -26,6 +26,9 @@ site.
 - PDF créé sans redimensionnement volontaire ;
 - CBR véritable lorsque l'outil `rar` est installé ;
 - validation du fichier final avant suppression des fichiers de travail.
+- reconnaissance des vrais SVGZ, des SVG servis sous une extension `.svgz` et des
+  images intégrées sous forme d'URI `data:` ;
+- inventaire automatique des balises, classes, textes et filigranes SVG.
 
 ## Qualité et intégrité
 
@@ -51,6 +54,10 @@ L'outil reste volontairement léger et n'installe rien tout seul.
 Pour créer des PDF, installez l'option `pdf`. Pour créer un CBR, installez
 [WinRAR](https://www.rarlab.com/download.htm), qui fournit l'outil `rar`. CBZ ne
 demande aucun logiciel supplémentaire.
+
+Les documents SVG exportés en PDF demandent également
+[Inkscape](https://inkscape.org/release/), afin de conserver leurs textes et tracés
+en vectoriel au lieu de les transformer silencieusement en pixels.
 
 ## Installation sous Windows
 
@@ -134,6 +141,8 @@ Options utiles :
 | `--format pdf` | Produit un PDF sans redimensionnement |
 | `--format epub` | Produit un EPUB 3 à mise en pages fixe |
 | `--format images` | Conserve les images originales dans un dossier |
+| `--watermarks detect` | Détecte et documente les filigranes SVG sans modifier la page |
+| `--watermarks remove` | Retire sans question les seuls candidats SVG à confiance élevée |
 | `--expected 185` | Impose un nombre exact de pages |
 | `--selector "img.page"` | Impose le groupe d'images |
 | `--wait-for-user` | Attend une connexion manuelle dans le navigateur |
@@ -153,6 +162,18 @@ Il n'autorise pas automatiquement un domaine CDN complètement différent. Véri
 ce domaine, puis ajoutez-le explicitement avec `--allow-host`.
 
 N'utilisez `--allow-partial` que si un résultat incomplet est réellement voulu.
+
+### SVG, SVGZ et filigranes
+
+KomaForge vérifie les octets réels d'une ressource plutôt que de croire son
+extension. Un fichier `.svgz` réellement compressé est décompressé; un serveur qui
+renvoie directement du XML SVG sous cette extension est également accepté.
+
+La détection des filigranes ne repose jamais sur « le dernier texte ». Elle combine
+un terme explicite, la rareté de ses classes, une transformation diagonale et sa
+largeur. Le mode par défaut `detect` ne modifie rien. Le mode `remove` est réservé
+aux documents que vous possédez ou êtes autorisé à transformer; il ne retire que
+les candidats à confiance élevée et valide le SVG après traitement.
 
 ## Tests avant publication
 

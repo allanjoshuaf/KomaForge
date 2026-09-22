@@ -63,6 +63,7 @@ class PortablePathTests(unittest.TestCase):
                 "--chrome",
                 "--retries",
                 "--max-image-mb",
+                "--watermarks",
                 "--format",
                 "--pdf",
                 "--allow-partial",

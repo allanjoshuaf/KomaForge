@@ -21,6 +21,8 @@ from .detection import (
     normalize_selector_input,
 )
 from .formats import create_selected_output, file_sha256, remove_validated_work_directory
+from .resources import detect_resource, is_page_resource, resource_from_url_value
+from .svg_tools import inspect_svg, remove_high_confidence_watermarks
 
 
 PAGE_TIMEOUT_MS = 90_000
@@ -51,7 +53,10 @@ def wait_for_chrome(port: int, timeout_seconds: int = 60) -> dict:
 
 
 def host_is_allowed(image_url: str, allowed_hosts: set[str]) -> bool:
-    hostname = (urlparse(image_url).hostname or "").lower()
+    parsed = urlparse(image_url)
+    if parsed.scheme == "data":
+        return True
+    hostname = (parsed.hostname or "").lower()
     return any(
         hostname == allowed or hostname.endswith("." + allowed)
         for allowed in allowed_hosts
@@ -59,28 +64,17 @@ def host_is_allowed(image_url: str, allowed_hosts: set[str]) -> bool:
 
 
 def sniff_extension(data: bytes, content_type: str) -> str | None:
-    if data.startswith(b"\xff\xd8\xff"):
-        return ".jpg"
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return ".png"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return ".webp"
-    if data.startswith((b"GIF87a", b"GIF89a")):
-        return ".gif"
-    lowered = content_type.lower()
-    for marker, extension in (
-        ("jpeg", ".jpg"), ("png", ".png"), ("webp", ".webp"),
-        ("gif", ".gif"),
-    ):
-        if marker in lowered:
-            return extension
-    return None
+    try:
+        info = detect_resource(data, content_type)
+    except ValueError:
+        return None
+    return info.extension if is_page_resource(info) else None
 
 
 def valid_existing_file(path: Path) -> bool:
     try:
         with path.open("rb") as stream:
-            head = stream.read(16)
+            head = stream.read(8192)
         return sniff_extension(head, "") == path.suffix.lower()
     except OSError:
         return False
@@ -94,6 +88,7 @@ def download_pages(
     allowed_hosts: set[str],
     retries: int,
     max_image_bytes: int,
+    watermark_policy: str,
 ) -> tuple[list[dict], list[int]]:
     results: list[dict] = []
     missing: list[int] = []
@@ -121,43 +116,73 @@ def download_pages(
         final_result = None
         for attempt in range(1, max(1, retries) + 1):
             try:
-                response = context.request.get(
-                    image_url,
-                    headers={"Referer": source_url},
-                    timeout=REQUEST_TIMEOUT_MS,
-                    fail_on_status_code=False,
-                )
-                if not response.ok:
-                    raise RuntimeError(f"HTTP {response.status}")
-                content_length = int(response.headers.get("content-length", "0") or 0)
-                if content_length > max_image_bytes:
-                    raise RuntimeError(
-                        f"image trop grande ({content_length / 1024 / 1024:.1f} Mo)"
+                embedded = resource_from_url_value(image_url)
+                if embedded is not None:
+                    data, content_type = embedded
+                else:
+                    response = context.request.get(
+                        image_url,
+                        headers={"Referer": source_url},
+                        timeout=REQUEST_TIMEOUT_MS,
+                        fail_on_status_code=False,
                     )
-                data = response.body()
+                    if not response.ok:
+                        raise RuntimeError(f"HTTP {response.status}")
+                    content_length = int(response.headers.get("content-length", "0") or 0)
+                    if content_length > max_image_bytes:
+                        raise RuntimeError(
+                            f"image trop grande ({content_length / 1024 / 1024:.1f} Mo)"
+                        )
+                    data = response.body()
+                    content_type = response.headers.get("content-type", "")
                 if len(data) > max_image_bytes:
                     raise RuntimeError(
                         f"image trop grande ({len(data) / 1024 / 1024:.1f} Mo)"
                     )
-                extension = sniff_extension(data, response.headers.get("content-type", ""))
-                if extension is None:
+                resource = detect_resource(
+                    data,
+                    content_type,
+                    image_url,
+                    max_uncompressed_bytes=max_image_bytes,
+                )
+                if not is_page_resource(resource):
                     raise RuntimeError(
                         "contenu non reconnu comme image "
-                        f"({response.headers.get('content-type', '') or 'sans type'})"
+                        f"({content_type or resource.kind})"
                     )
 
-                filename = images_dir / f"page-{page_number:04d}{extension}"
+                output_data = resource.data
+                svg_report = None
+                removed_watermarks: list[dict] = []
+                if resource.kind == "svg":
+                    svg_report = inspect_svg(output_data)
+                    if watermark_policy == "remove" and svg_report["high_confidence_watermark"]:
+                        output_data, removed_watermarks = remove_high_confidence_watermarks(output_data)
+                        svg_report = {
+                            "before": svg_report,
+                            "after": inspect_svg(output_data),
+                            "removed": removed_watermarks,
+                        }
+
+                filename = images_dir / f"page-{page_number:04d}{resource.extension}"
                 partial = filename.with_suffix(filename.suffix + ".part")
-                partial.write_bytes(data)
+                partial.write_bytes(output_data)
                 partial.replace(filename)
                 final_result = {
                     **item,
                     "file": filename.name,
                     "status": "downloaded",
-                    "bytes": len(data),
-                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "bytes": len(output_data),
+                    "sha256": hashlib.sha256(output_data).hexdigest(),
+                    "source_sha256": resource.source_sha256,
+                    "resource_kind": resource.kind,
+                    "normalized": resource.normalized,
+                    "normalization": resource.normalization,
                 }
-                print(f"[OK] page {page_number}/{len(pages)} ({len(data) / 1024:.0f} Ko)")
+                if resource.kind == "svg":
+                    final_result["svg"] = svg_report
+                    final_result["watermarks_removed"] = len(removed_watermarks)
+                print(f"[OK] page {page_number}/{len(pages)} ({len(output_data) / 1024:.0f} Ko)")
                 break
             except Exception as exc:
                 print(f"[ESSAI {attempt}/{retries}] page {page_number}: {exc}")
@@ -284,6 +309,7 @@ def run(args) -> int:
                 allowed_hosts=allowed_hosts,
                 retries=args.retries,
                 max_image_bytes=args.max_image_mb * 1024 * 1024,
+                watermark_policy=args.watermarks,
             )
             manifest = {
                 "source_url": args.url,
@@ -297,6 +323,7 @@ def run(args) -> int:
                 "missing": missing,
                 "output_format": args.output_format,
                 "quality": "original image bytes preserved; no resize",
+                "watermark_policy": args.watermarks,
                 "pages": results,
             }
             write_json(manifest_path, manifest)
