@@ -40,13 +40,13 @@ class PortablePathTests(unittest.TestCase):
                 Path(r"C:\Extractions\Manga\example.test-7"),
             )
 
-    def test_source_has_no_hard_coded_ashkel_profile(self):
+    def test_source_has_no_hard_coded_windows_profile(self):
         source_root = Path(__file__).resolve().parents[1] / "src"
         source = "\n".join(
             path.read_text(encoding="utf-8")
             for path in source_root.rglob("*.py")
         )
-        self.assertNotIn(r"C:\Users\ashkel", source)
+        self.assertNotRegex(source, r"(?i)C:\\Users\\[^\\\r\n\"']+")
 
     def test_cli_keeps_original_options_only(self):
         parser = build_parser()
