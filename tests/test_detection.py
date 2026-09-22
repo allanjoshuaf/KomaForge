@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -68,7 +69,17 @@ class EndToEndDetectionTests(unittest.TestCase):
             self.assertEqual(manifest["selector"], "img.ts-main-image")
             self.assertEqual(manifest["saved"], 5)
             self.assertEqual(manifest["missing"], [])
-            self.assertEqual(len(list((Path(temp) / "images").glob("page-*.png"))), 5)
+            archive_path = Path(temp) / "document.cbz"
+            self.assertTrue(archive_path.is_file())
+            self.assertFalse((Path(temp) / "images").exists())
+            self.assertFalse((Path(temp) / ".komaforge-work").exists())
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertEqual(
+                    archive.namelist(),
+                    [f"page-{index:04d}.png" for index in range(1, 6)],
+                )
+            self.assertEqual(manifest["output_format"], "cbz")
+            self.assertEqual(manifest["artifact"]["path"], "document.cbz")
 
     def test_wrong_expected_count_stops_before_download(self):
         project = Path(__file__).resolve().parents[1]
@@ -95,7 +106,10 @@ class EndToEndDetectionTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertFalse((Path(temp) / "pages.json").exists())
-            self.assertEqual(list((Path(temp) / "images").iterdir()), [])
+            self.assertFalse((Path(temp) / "images").exists())
+            work_images = Path(temp) / ".komaforge-work" / "images"
+            self.assertTrue(work_images.is_dir())
+            self.assertEqual(list(work_images.iterdir()), [])
 
 
 if __name__ == "__main__":

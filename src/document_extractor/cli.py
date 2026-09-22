@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from .paths import default_output_dir
+from .formats import OUTPUT_FORMATS
 
 
 DEFAULT_CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
@@ -13,7 +14,7 @@ DEFAULT_CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="document-extractor",
+        prog="komaforge",
         description=(
             "Détecte et enregistre les pages image d'un document publié sur "
             "un site que vous contrôlez ou êtes autorisé à archiver."
@@ -34,7 +35,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wait-for-user", action="store_true")
     parser.add_argument("--profile-dir", type=Path)
     parser.add_argument("--chrome", default=DEFAULT_CHROME, help="Chemin de Chrome")
-    parser.add_argument("--pdf", action="store_true")
+    parser.add_argument(
+        "--format",
+        choices=OUTPUT_FORMATS,
+        dest="output_format",
+        help="Sortie unique : cbz, cbr, pdf, epub ou images (défaut : cbz)",
+    )
+    parser.add_argument(
+        "--pdf",
+        action="store_true",
+        help="Alias historique de --format pdf",
+    )
     parser.add_argument("--allow-partial", action="store_true")
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--max-image-mb", type=int, default=50)
@@ -50,7 +61,7 @@ def ask_yes_no(prompt: str, default: bool = False) -> bool:
 
 
 def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
-    print("\nDocument Extractor")
+    print("\nKomaForge")
     print("1. Extraction automatique (recommandé)")
     print("2. Extraction avec options avancées")
     print("3. Quitter")
@@ -69,7 +80,17 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
     ).strip()
     if custom_output:
         args.output = Path(custom_output).expanduser()
-    args.pdf = ask_yes_no("Créer aussi un PDF ?")
+    print("\nFormat de sortie — un seul fichier ou dossier sera conservé :")
+    print("1. CBZ — images originales, recommandé pour manga/BD")
+    print("2. CBR — archive RAR, demande WinRAR/rar")
+    print("3. PDF — mise en pages fixe")
+    print("4. EPUB — livre numérique à mise en pages fixe")
+    print("5. Images — fichiers originaux dans un dossier")
+    format_choice = input("Format [1] : ").strip() or "1"
+    format_map = {"1": "cbz", "2": "cbr", "3": "pdf", "4": "epub", "5": "images"}
+    if format_choice not in format_map:
+        raise SystemExit("Format invalide.")
+    args.output_format = format_map[format_choice]
     args.wait_for_user = ask_yes_no("Le site demande-t-il une connexion manuelle ?")
 
     if choice == "2":
@@ -100,6 +121,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             raise SystemExit("URL manquante. Ajoutez une URL ou lancez le menu interactif.")
         args = interactive_setup(args)
     validate_url(args.url)
+    if args.pdf and args.output_format and args.output_format != "pdf":
+        raise SystemExit("Utilisez soit --pdf, soit --format, pas les deux.")
+    args.output_format = "pdf" if args.pdf else (args.output_format or "cbz")
     args.output = (
         args.output.expanduser().resolve()
         if args.output
@@ -114,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"URL : {args.url}")
     print(f"Sortie : {args.output}")
+    print(f"Format : {args.output_format}")
     try:
         return run(args)
     except KeyboardInterrupt:

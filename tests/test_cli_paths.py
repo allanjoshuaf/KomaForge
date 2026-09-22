@@ -63,6 +63,7 @@ class PortablePathTests(unittest.TestCase):
                 "--chrome",
                 "--retries",
                 "--max-image-mb",
+                "--format",
                 "--pdf",
                 "--allow-partial",
             },
@@ -96,7 +97,16 @@ class PortablePathTests(unittest.TestCase):
         self.assertIsNone(configured.selector)
         self.assertIsNone(configured.expected)
         self.assertFalse(configured.pdf)
+        self.assertEqual(configured.output_format, "cbz")
         self.assertFalse(configured.wait_for_user)
+
+    def test_direct_cli_selects_one_output_format(self):
+        args = parse_args(["https://example.test/book/7", "--format", "epub"])
+        self.assertEqual(args.output_format, "epub")
+
+    def test_historical_pdf_alias_maps_to_pdf_format(self):
+        args = parse_args(["https://example.test/book/7", "--pdf"])
+        self.assertEqual(args.output_format, "pdf")
 
 
 if __name__ == "__main__":
