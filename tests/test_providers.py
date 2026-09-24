@@ -17,6 +17,7 @@ class CalameoProviderTests(unittest.TestCase):
     def test_builds_every_signed_svgz_page_from_verified_metadata(self):
         content = {
             "key": "book-key",
+            "name": "Mon livre de test",
             "document": {"pages": 3},
             "domains": {
                 "secured": {"svg": "https://ps.calameoassets.com/"}
@@ -29,7 +30,12 @@ class CalameoProviderTests(unittest.TestCase):
         result = build_calameo_pages(content, loaded)
 
         self.assertEqual(result.name, "calameo")
-        self.assertEqual(result.expected.value, 3)
+        self.assertEqual(result.publication_type, "book")
+        self.assertEqual(result.title, "Mon livre de test")
+        self.assertEqual(len(result.chapters), 1)
+        self.assertEqual(result.chapters[0].title, "Mon livre de test")
+        self.assertEqual(result.chapters[0].number, "1")
+        self.assertEqual(result.chapters[0].expected.value, 3)
         self.assertEqual(result.allowed_hosts, {"ps.calameoassets.com"})
         self.assertEqual(
             [page["url"] for page in result.pages],

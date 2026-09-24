@@ -2,12 +2,56 @@
 
 Toutes les modifications notables de KomaForge sont consignées ici.
 
-## Version locale en cours
+## 0.4.0 - 2026-09-24
 
 - récupération du premier chargement SSL défaillant dans Chrome ;
 - profil Calaméo avec nombre de pages et CDN vérifiés ;
 - suppression exacte de `SPECIMEN` par défaut et option répétable `--watermark-text` ;
 - remplacement du rendu Inkscape par l'impression PDF de Chrome issue du prototype validé.
+- modèle structuré œuvre → chapitres → pages dans les manifestes ;
+- détection prudente des listes de chapitres sur les URL inconnues ;
+- détection des menus dynamiques de volumes, tomes et chapitres ;
+- conservation du vocabulaire `volume` et sortie dans un dossier `volumes` ;
+- distinction entre le nombre d'images sources et le nombre inconnu de pages papier ;
+- attente du chargement progressif avant de valider un compteur provisoire `1 / 1` ;
+- attente des options ajoutées tardivement dans un menu de volumes ;
+- affichage concis du mode de lecture et acceptation sûre des liens Markdown collés ;
+- rejet absolu des logos, icônes, bannières et images héroïnes comme pages ;
+- attente d'initialisation et diagnostic des lecteurs PDF rendus par canvas/iframe ;
+- exploration récursive des Shadow DOM et des iframes accessibles ;
+- activation ciblée des boutons de démarrage comme `Load preview` ;
+- détection, validation et conservation du vrai PDF chargé par le navigateur ;
+- comparaison avec les compteurs de pages tardifs trouvés dans les métadonnées JSON ;
+- statut `incomplete` sans fichier de sortie lorsqu'un PDF ne couvre pas toute la publication ;
+- suppression de `--allow-partial` : aucun document incomplet n'est conservé ;
+- reconnaissance des arbres PDF détachés dont les pages visibles forment le préfixe ordonné ;
+- récupération explicite et validée d'un arbre PDF détaché avec `--recover-detached-pdf` ;
+- téléchargement segmenté et vérifié des gros PDF compatibles avec les plages d'octets ;
+- proposition contextuelle de récupération dans le menu interactif après validation complète de l'arbre ;
+- choix du format restauré dans le menu simple, avec `original` recommandé ;
+- conservation automatique du conteneur natif : PDF, EPUB ou CBZ pour les pages image ;
+- détection et validation des EPUB chargés par le lecteur, y compris leur spine OPF ;
+- comparaison des fichiers EPUB présents avec tous les documents annoncés par leur table des matières ;
+- diagnostic des entrées ZIP locales détachées et des données ajoutées après la fin du conteneur ;
+- refus d'étiqueter comme complet un EPUB d'aperçu dont des chapitres annoncés sont absents ;
+- conversion EPUB vers PDF avec Chrome et conversion documentaire vers des pages PNG à 200 ppp ;
+- refus de produire un fichier basse qualité lorsqu'aucune page originale n'est exposée ;
+- choix interactif des volumes après détection, avec la première partie par défaut ;
+- interruption plus propre des boucles de chargement progressif.
+- attente des lecteurs dont le contenu apparaît tardivement sans message `Loading` ;
+- arrêt anticipé du défilement lorsque toutes les ressources attendues sont prêtes ;
+- préférence pour une famille d'URL numérotée face aux vignettes et images d'interface ;
+- détection des compteurs de forme `1/177` et correction par une séquence continue plus fiable ;
+- autorisation automatique limitée aux CDN HTTPS dominants du groupe de pages sélectionné ;
+- téléchargement parallèle réglable avec `--workers`, puis repli dans la session Chrome ;
+- reprise liée à l'URL, au nom et au SHA-256 de chaque page, sans réutilisation d'un ancien placeholder ;
+- échelle PDF stable à 96 ppp sans rééchantillonnage, y compris pour les bandeaux très bas ;
+- tri documentaire explicite après les arrivées réseau parallèles ;
+- sortie séparée par chapitre et sélection `--chapters all` ou `1-5,8` ;
+- modes `--inspect`, `--scope document` et `--scope work` ;
+- protection contre l'expansion involontaire d'une URL qui désigne déjà un chapitre ;
+- retrait des filigranes demandés dans les SVG déjà présents lors d'une reprise ;
+- poursuite des chapitres suivants lorsqu'un chapitre intermédiaire échoue.
 
 ## 0.3.1 - 2026-09-22
 
