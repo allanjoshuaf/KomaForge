@@ -7,3 +7,4 @@ dist/
 *.egg-info/
 extractions/
 .komaforge-work/
+tmp/

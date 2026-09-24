@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
+import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, urlunparse
 
 
 PAGE_TIMEOUT_MS = 90_000
@@ -15,6 +17,40 @@ class ExpectedCount:
     value: int
     source: str
     confidence: str
+
+
+@dataclass(frozen=True)
+class ChapterLink:
+    index: int
+    number: str
+    title: str
+    url: str
+
+
+@dataclass(frozen=True)
+class SelectablePart:
+    index: int
+    number: str
+    title: str
+    kind: str
+    selector: str
+    value: str
+
+
+CHAPTER_PATTERN = re.compile(
+    r"(?i)(?:chapter|chapitre|cap[ií]tulo|episode|épisode|ch\.?)"
+    r"(?:\s|[-_/#.:])*([0-9]+(?:[.,][0-9]+)?)"
+)
+
+PART_PATTERN = re.compile(
+    r"(?i)\b(volume|vol\.?|tome|chapter|chapitre|issue|book|livre)"
+    r"(?:\s|[-_/#.:])*([0-9]+(?:[.,][0-9]+)?)\b"
+)
+
+
+def looks_like_chapter_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return CHAPTER_PATTERN.search(f"{parsed.path} {parsed.query}") is not None
 
 
 def normalize_selector_input(value: str | None) -> str | None:
@@ -44,6 +80,254 @@ def normalize_selector_input(value: str | None) -> str | None:
         if classes:
             return tag + "".join(f".{item}" for item in classes)
     return tag
+
+
+def normalize_chapter_candidates(
+    candidates: list[dict],
+    source_url: str,
+    minimum: int = 3,
+) -> list[ChapterLink]:
+    """Conserve seulement un groupe fiable de liens de chapitres du même site."""
+    source = urlparse(source_url)
+    groups: dict[str, dict[str, tuple[Decimal, str, str, str]]] = defaultdict(dict)
+
+    for candidate in candidates:
+        raw_url = str(candidate.get("url") or "").strip()
+        title = " ".join(str(candidate.get("title") or "").split())
+        if not raw_url:
+            continue
+        absolute = urlparse(urljoin(source_url, raw_url))
+        if (
+            absolute.scheme not in {"http", "https"}
+            or (absolute.hostname or "").lower() != (source.hostname or "").lower()
+            or absolute.username
+            or absolute.password
+        ):
+            continue
+
+        clean_url = urlunparse(
+            (absolute.scheme, absolute.netloc, absolute.path, absolute.params, absolute.query, "")
+        )
+        match = CHAPTER_PATTERN.search(title) or CHAPTER_PATTERN.search(absolute.path)
+        if match is None:
+            continue
+        number = match.group(1).replace(",", ".")
+        try:
+            numeric = Decimal(number)
+        except InvalidOperation:
+            continue
+
+        path_pattern = re.sub(r"[0-9]+(?:[._-][0-9]+)*", "#", absolute.path.lower())
+        label = title or f"Chapitre {number}"
+        groups[path_pattern][clean_url] = (numeric, number, label, clean_url)
+
+    eligible = [list(group.values()) for group in groups.values() if len(group) >= minimum]
+    if not eligible:
+        return []
+    eligible.sort(key=len, reverse=True)
+    if len(eligible) > 1 and len(eligible[0]) == len(eligible[1]):
+        return []
+
+    by_number: dict[Decimal, tuple[Decimal, str, str, str]] = {}
+    for item in eligible[0]:
+        current = by_number.get(item[0])
+        if current is None or len(item[3]) < len(current[3]):
+            by_number[item[0]] = item
+    ordered = sorted(by_number.values(), key=lambda item: (item[0], item[3]))
+    if len(ordered) < minimum:
+        return []
+    return [
+        ChapterLink(index=index, number=number, title=title, url=url)
+        for index, (_numeric, number, title, url) in enumerate(ordered, start=1)
+    ]
+
+
+def discover_chapters(
+    page,
+    source_url: str,
+    minimum: int = 3,
+) -> list[ChapterLink]:
+    candidates = page.locator("a[href]").evaluate_all(
+        """
+        links => links.slice(0, 5000).map(link => ({
+            url: link.href,
+            title: (link.innerText || link.getAttribute('aria-label') ||
+                link.getAttribute('title') || '').trim()
+        }))
+        """
+    )
+    return normalize_chapter_candidates(candidates, source_url, minimum)
+
+
+def _part_kind(label: str) -> str:
+    normalized = label.casefold().rstrip(".")
+    if normalized in {"volume", "vol", "tome"}:
+        return "volume"
+    if normalized in {"chapter", "chapitre"}:
+        return "chapter"
+    if normalized in {"book", "livre"}:
+        return "book"
+    if normalized == "issue":
+        return "issue"
+    return "part"
+
+
+def normalize_selectable_part_candidates(
+    candidates: list[dict],
+    minimum: int = 2,
+) -> list[SelectablePart]:
+    """Reconnaît un menu cohérent de volumes, tomes ou chapitres."""
+    eligible: list[tuple[int, str, list[tuple[Decimal, str, str, str]]]] = []
+    for candidate in candidates:
+        selector = str(candidate.get("selector") or "").strip()
+        if not selector:
+            continue
+        by_kind: dict[str, dict[Decimal, tuple[Decimal, str, str, str]]] = (
+            defaultdict(dict)
+        )
+        for option in candidate.get("options") or []:
+            title = " ".join(str(option.get("title") or "").split())
+            value = str(option.get("value") or "")
+            match = PART_PATTERN.search(title)
+            if match is None:
+                continue
+            kind = _part_kind(match.group(1))
+            number = match.group(2).replace(",", ".")
+            try:
+                numeric = Decimal(number)
+            except InvalidOperation:
+                continue
+            by_kind[kind][numeric] = (numeric, number, title, value)
+
+        groups = [
+            (kind, sorted(values.values(), key=lambda item: item[0]))
+            for kind, values in by_kind.items()
+            if len(values) >= minimum
+        ]
+        if not groups:
+            continue
+        groups.sort(key=lambda item: len(item[1]), reverse=True)
+        if len(groups) > 1 and len(groups[0][1]) == len(groups[1][1]):
+            continue
+        kind, parts = groups[0]
+        eligible.append(
+            (
+                len(parts),
+                selector,
+                [(item[0], item[1], item[2], item[3]) for item in parts],
+            )
+        )
+
+    if not eligible:
+        return []
+    eligible.sort(key=lambda item: item[0], reverse=True)
+    if len(eligible) > 1 and eligible[0][0] == eligible[1][0]:
+        return []
+
+    _count, selector, parts = eligible[0]
+    kind_match = PART_PATTERN.search(parts[0][2])
+    kind = _part_kind(kind_match.group(1)) if kind_match else "part"
+    return [
+        SelectablePart(
+            index=index,
+            number=number,
+            title=title,
+            kind=kind,
+            selector=selector,
+            value=value,
+        )
+        for index, (_numeric, number, title, value) in enumerate(parts, start=1)
+    ]
+
+
+def discover_selectable_parts(
+    page,
+    minimum: int = 2,
+    wait_timeout_ms: int = 0,
+) -> list[SelectablePart]:
+    def read_parts() -> list[SelectablePart]:
+        candidates = page.locator("select").evaluate_all(
+            r"""
+            selects => selects.slice(0, 100).map(select => {
+                const safeId = /^[-_a-zA-Z][-_a-zA-Z0-9]*$/.test(select.id || '')
+                    ? `#${select.id}` : null;
+                return {
+                    selector: safeId,
+                    options: [...select.options].map(option => ({
+                        title: (option.textContent || '').trim(),
+                        value: option.value
+                    }))
+                };
+            })
+            """
+        )
+        return normalize_selectable_part_candidates(candidates, minimum)
+
+    parts = read_parts()
+    if parts or wait_timeout_ms <= 0:
+        return parts
+
+    has_delayed_menu_hint = page.evaluate(
+        r"""
+        () => [...document.querySelectorAll('select')].some(select => {
+            const label = select.labels?.length
+                ? [...select.labels].map(node => node.textContent).join(' ') : '';
+            const context = [select.id, select.name,
+                select.getAttribute('aria-label'), label,
+                [...select.options].map(option => option.textContent).join(' ')]
+                .join(' ');
+            return /(chapter|chapitre|volume|tome|book|livre|issue)/i.test(context);
+        })
+        """
+    )
+    if not has_delayed_menu_hint:
+        return []
+
+    deadline = time.monotonic() + wait_timeout_ms / 1000
+    while time.monotonic() < deadline:
+        time.sleep(0.25)
+        parts = read_parts()
+        if parts:
+            return parts
+    return []
+
+
+def select_chapters(chapters: list[Any], expression: str) -> list[Any]:
+    """Sélectionne des parties par leur position : all ou 1-3,5."""
+    value = (expression or "all").strip().lower()
+    if value in {"all", "tous", "tout", "*"}:
+        return list(chapters)
+    if not value:
+        raise ValueError("La sélection de parties est vide.")
+
+    selected: set[int] = set()
+    for token in value.split(","):
+        token = token.strip()
+        if not token:
+            raise ValueError("Sélection de parties invalide.")
+        if re.fullmatch(r"[0-9]+", token):
+            selected.add(int(token))
+            continue
+        match = re.fullmatch(r"([0-9]+)\s*-\s*([0-9]+)", token)
+        if match is None:
+            raise ValueError(
+                "Sélection de parties invalide. Utilisez all ou 1-3,5."
+            )
+        start, end = (int(match.group(1)), int(match.group(2)))
+        if start > end:
+            raise ValueError("Une plage de chapitres est inversée.")
+        selected.update(range(start, end + 1))
+
+    available = {int(chapter.index) for chapter in chapters}
+    unknown = sorted(selected - available)
+    if unknown:
+        raise ValueError(
+            "Partie(s) hors plage : " + ", ".join(str(item) for item in unknown)
+        )
+    result = [chapter for chapter in chapters if int(chapter.index) in selected]
+    if not result:
+        raise ValueError("Aucune partie sélectionnée.")
+    return result
 
 
 def normalize_manifest(raw_manifest: Any, base_url: str) -> list[dict]:
@@ -97,6 +381,242 @@ def pages_from_manifest(page) -> list[dict]:
     return normalize_manifest(raw_manifest, page.url) if raw_manifest else []
 
 
+def activate_reader_gate(page) -> dict | None:
+    """Active un bouton explicite qui met en route un aperçu déjà ouvert."""
+    candidate = page.evaluate(
+        r"""
+        () => {
+            const normal = value => String(value || '').normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                .replace(/\s+/g, ' ').trim();
+            const roots = [document];
+            const seen = new Set(roots);
+            for (let index = 0; index < roots.length; index++) {
+                for (const node of roots[index].querySelectorAll('*')) {
+                    if (node.shadowRoot && !seen.has(node.shadowRoot)) {
+                        seen.add(node.shadowRoot);
+                        roots.push(node.shadowRoot);
+                    }
+                    if (node.tagName === 'IFRAME') {
+                        try {
+                            if (node.contentDocument && !seen.has(node.contentDocument)) {
+                                seen.add(node.contentDocument);
+                                roots.push(node.contentDocument);
+                            }
+                        } catch (_) {
+                            // Les contrôles d'une iframe externe ne sont pas manipulés.
+                        }
+                    }
+                }
+            }
+            const controls = roots.flatMap(root => [...root.querySelectorAll(
+                'button, [role="button"], input[type="button"], input[type="submit"], a'
+            )]);
+            const exact = /^(?:(?:load|resume|continue|open|start)(?: this)? (?:preview|book preview|document preview|reader|reading|book|document)|(?:charger|reprendre|continuer|ouvrir|commencer)(?: cet?| le| la)? (?:apercu|livre|document|lecteur|lecture))$/;
+            const forbidden = /(sign.?in|log.?in|register|subscribe|purchase|buy|pay|download|connexion|inscription|abonn|acheter|payer|telecharger)/;
+            for (const control of controls) {
+                const style = getComputedStyle(control);
+                const rect = control.getBoundingClientRect();
+                if (style.display === 'none' || style.visibility === 'hidden' ||
+                    rect.width <= 0 || rect.height <= 0 || control.disabled ||
+                    control.hasAttribute('data-komaforge-reader-gate')) continue;
+                const label = normal(
+                    control.getAttribute('aria-label') || control.textContent ||
+                    control.value || control.getAttribute('title')
+                );
+                if (!exact.test(label) || forbidden.test(label)) continue;
+                const marker = `gate-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                control.setAttribute('data-komaforge-reader-gate', marker);
+                return {marker, label};
+            }
+            return null;
+        }
+        """
+    )
+    if not candidate:
+        return None
+
+    control = page.locator(
+        f'[data-komaforge-reader-gate="{candidate["marker"]}"]'
+    ).first
+    try:
+        control.click(timeout=10_000)
+    except Exception:
+        control.evaluate("node => node.click()")
+    time.sleep(0.5)
+    return {
+        "action": f"clic -> {candidate['label']}",
+        "source": "démarrage automatique du lecteur",
+    }
+
+
+def wait_for_reader_readiness(page, timeout_ms: int = 20_000) -> dict:
+    """Attend un lecteur encore explicitement en cours d'initialisation."""
+
+    def state() -> dict:
+        return page.evaluate(
+            r"""
+            () => {
+                const deepRoots = () => {
+                    const roots = [document];
+                    const seen = new Set(roots);
+                    for (let index = 0; index < roots.length; index++) {
+                        const root = roots[index];
+                        for (const node of root.querySelectorAll('*')) {
+                            if (node.shadowRoot && !seen.has(node.shadowRoot)) {
+                                seen.add(node.shadowRoot);
+                                roots.push(node.shadowRoot);
+                            }
+                            if (node.tagName === 'IFRAME') {
+                                try {
+                                    if (node.contentDocument && !seen.has(node.contentDocument)) {
+                                        seen.add(node.contentDocument);
+                                        roots.push(node.contentDocument);
+                                    }
+                                } catch (_) {
+                                    // Une iframe externe reste détectable comme surface.
+                                }
+                            }
+                        }
+                    }
+                    return roots;
+                };
+                const roots = deepRoots();
+                const all = selector => roots.flatMap(
+                    root => [...root.querySelectorAll(selector)]
+                );
+                const body = (document.body?.innerText || '')
+                    .replace(/\s+/g, ' ').slice(0, 5000);
+                const aria = all('[aria-label]')
+                    .map(node => node.getAttribute('aria-label') || '').join(' ');
+                const visibleCanvas = all('canvas').some(canvas => {
+                    const rect = canvas.getBoundingClientRect();
+                    return rect.width >= 200 && rect.height >= 200;
+                });
+                const pageSignal = /page\s+\S+\s*\(page\s*\d+\s*(?:of|sur|\/)\s*\d+\)/i
+                    .test(aria) || /page\s*\d+\s*(?:of|sur|\/)\s*\d+/i
+                    .test(`${aria} ${body}`);
+                const likelyImages = all('img').filter(image => {
+                    const text = `${image.id} ${image.className} ${image.alt}`;
+                    return /(page|scan|chapter|chapitre|volume|manga|comic)/i.test(text) &&
+                        !/(logo|icon|avatar|advert|sponsor|thumbnail|hero)/i.test(text);
+                }).length;
+                const readerHint = all(
+                    '#readingsystem-viewport, [aria-label*="book content" i], ' +
+                    '[id*="reader" i], [class*="reader" i], ' +
+                    '[id*="pdf" i], [class*="pdf" i]'
+                ).length > 0 || /(?:reader|lecteur)/i.test(document.title);
+                const loading = /(loading\.{0,3}|preparing your (?:book|document))/i
+                    .test(`${document.title} ${body}`);
+                return {loading, ready: pageSignal || visibleCanvas || likelyImages >= 2,
+                    pageSignal, visibleCanvas, likelyImages, readerHint};
+            }
+            """
+        )
+
+    first = state()
+    if first["ready"] or (not first["loading"] and not first["readerHint"]):
+        return {**first, "waited_ms": 0}
+    deadline = time.monotonic() + timeout_ms / 1000
+    waited_ms = 0
+    current = first
+    while time.monotonic() < deadline:
+        time.sleep(0.25)
+        waited_ms += 250
+        current = state()
+        if current["ready"] or (
+            not current["loading"] and not current["readerHint"]
+        ):
+            break
+    return {**current, "waited_ms": waited_ms}
+
+
+def inspect_render_surfaces(page) -> dict:
+    """Inventorie les lecteurs canvas/iframe sans prétendre extraire leurs pixels."""
+    return page.evaluate(
+            r"""
+        () => {
+            const deepRoots = () => {
+                const roots = [document];
+                const seen = new Set(roots);
+                for (let index = 0; index < roots.length; index++) {
+                    const root = roots[index];
+                    for (const node of root.querySelectorAll('*')) {
+                        if (node.shadowRoot && !seen.has(node.shadowRoot)) {
+                            seen.add(node.shadowRoot);
+                            roots.push(node.shadowRoot);
+                        }
+                        if (node.tagName === 'IFRAME') {
+                            try {
+                                if (node.contentDocument && !seen.has(node.contentDocument)) {
+                                    seen.add(node.contentDocument);
+                                    roots.push(node.contentDocument);
+                                }
+                            } catch (_) {
+                                // Une iframe externe reste détectable comme surface.
+                            }
+                        }
+                    }
+                }
+                return roots;
+            };
+            const roots = deepRoots();
+            const all = selector => roots.flatMap(
+                root => [...root.querySelectorAll(selector)]
+            );
+            const visible = node => {
+                const rect = node.getBoundingClientRect();
+                const style = getComputedStyle(node);
+                return rect.width >= 100 && rect.height >= 100 &&
+                    style.display !== 'none' && style.visibility !== 'hidden';
+            };
+            const canvases = all('canvas')
+                .filter(visible).map(canvas => ({
+                    width: canvas.width,
+                    height: canvas.height,
+                    className: String(canvas.className || ''),
+                    parentClass: String(canvas.parentElement?.className || '')
+                }));
+            const frames = all('iframe')
+                .filter(frame => visible(frame) ||
+                    /(page|reader|text.?layer|document)/i.test(
+                        `${frame.title} ${frame.className}`
+                    ))
+                .map(frame => ({title: frame.title,
+                    className: String(frame.className || '')}));
+            const texts = all(
+                '[aria-label], input[placeholder], [role="slider"]'
+            ).map(node => `${node.getAttribute('aria-label') || ''} ` +
+                `${node.getAttribute('placeholder') || ''}`);
+            const pageCounts = [];
+            for (const text of texts) {
+                const match = text.match(/page\s*\d+\s*(?:of|sur|\/)\s*(\d+)/i);
+                if (match) pageCounts.push(Number(match[1]));
+            }
+            for (const slider of all(
+                'input[type="range"][aria-label*="page" i], [role="slider"][aria-label*="page" i]'
+            )) {
+                const maximum = Number(slider.max || slider.getAttribute('aria-valuemax'));
+                if (Number.isFinite(maximum) && maximum >= 0) pageCounts.push(maximum + 1);
+            }
+            const readerHints = all(
+                '#readingsystem-viewport, [aria-label*="book content" i], ' +
+                '[id*="reader" i], [class*="reader" i], ' +
+                '[id*="pdf" i], [class*="pdf" i]'
+            );
+            return {
+                canvas_count: canvases.length,
+                iframe_count: frames.length,
+                canvases,
+                frames,
+                reader_hint: readerHints.length > 0,
+                accessible_page_count: pageCounts.length ? Math.max(...pageCounts) : null
+            };
+        }
+        """
+    )
+
+
 def detect_expected_count(page) -> ExpectedCount | None:
     candidates = page.evaluate(
         r"""
@@ -145,7 +665,8 @@ def detect_expected_count(page) -> ExpectedCount | None:
             const patterns = [
                 /\bpage\s*\d+\s*(?:\/|sur|of)\s*(\d+)\b/i,
                 /\b\d+\s*(?:\/|sur|of)\s*(\d+)\s*pages?\b/i,
-                /\b(\d+)\s*pages?\b/i
+                /\b(\d+)\s*pages?\b/i,
+                /(?:^|\s)\d+\s*\/\s*(\d+)(?:\s|$)/
             ];
             for (const node of nodes) {
                 const text = `${node.textContent || ''} ${node.getAttribute('aria-label') || ''}`
@@ -193,7 +714,7 @@ def activate_reading_mode(
         else:
             control.click()
             action = f"clic sur {explicit_selector}"
-        page.wait_for_timeout(800)
+        time.sleep(0.8)
         return {"action": action, "source": "option explicite"}
 
     if not auto_enabled:
@@ -209,10 +730,11 @@ def activate_reading_mode(
             .test(`${document.title} ${(document.body?.innerText || '').slice(0, 2000)}`)
         """
     )
-    try:
-        exact.wait_for(state="visible", timeout=60_000 if challenge else 10_000)
-    except Exception:
-        pass
+    if exact.count() or challenge:
+        try:
+            exact.wait_for(state="visible", timeout=60_000 if challenge else 10_000)
+        except Exception:
+            pass
     if exact.count():
         options = exact.locator("option")
         values = [options.nth(index).get_attribute("value") for index in range(options.count())]
@@ -226,7 +748,7 @@ def activate_reading_mode(
                     timeout=60_000,
                 )
             except Exception:
-                page.wait_for_timeout(750)
+                time.sleep(0.75)
             return {
                 "action": "#readingmode = full",
                 "source": "valeur automatique prioritaire",
@@ -277,16 +799,20 @@ def activate_reading_mode(
             )];
             buttons.forEach((button, index) => {
                 if (!visible(button)) return;
-                const label = normal([
+                const searchable = normal([
                     button.textContent, button.value, button.id, button.name,
                     button.className, button.getAttribute('aria-label'),
                     button.getAttribute('title')
                 ].join(' '));
+                const displayLabel = [button.textContent,
+                    button.getAttribute('aria-label'), button.getAttribute('title'),
+                    button.value, button.id].map(normal).find(Boolean) || '';
                 let score = 0;
-                if (useful.test(label)) score += 12;
-                if (contextWords.test(label)) score += 5;
-                if (/show.?all/.test(label)) score += 6;
-                results.push({kind: 'button', index, label: label.slice(0, 100), score});
+                if (useful.test(displayLabel)) score += 12;
+                if (useful.test(displayLabel) && contextWords.test(searchable)) score += 5;
+                if (/show.?all/.test(displayLabel)) score += 6;
+                results.push({kind: 'button', index,
+                    label: displayLabel.slice(0, 100), score});
             });
             results.sort((a, b) => b.score - a.score);
             return results[0] || null;
@@ -295,10 +821,14 @@ def activate_reading_mode(
     )
     if not candidate:
         return None
-    if candidate["kind"] == "button" and re.search(
-        r"\b(fullscreen|full screen|plein ecran)\b", candidate.get("label", "")
-    ):
-        return None
+    if candidate["kind"] == "button":
+        label = candidate.get("label", "")
+        if re.search(
+            r"\b(fullscreen|full screen|plein ecran|scroll to (?:top|bottom)|"
+            r"back to top|next|previous|precedent|suivant)\b",
+            label,
+        ):
+            return None
     threshold = 10 if candidate["kind"] == "select" else 12
     if candidate["score"] < threshold:
         return None
@@ -307,7 +837,7 @@ def activate_reading_mode(
         control = page.locator("select").nth(candidate["index"])
         if not candidate.get("alreadyActive"):
             control.select_option(candidate["value"])
-            page.wait_for_timeout(800)
+            time.sleep(0.8)
         return {
             "action": f"select -> {candidate['label']} ({candidate['value']})",
             "source": "détection automatique",
@@ -318,7 +848,7 @@ def activate_reading_mode(
         'button, [role="button"], input[type="button"], input[type="radio"]'
     )
     controls.nth(candidate["index"]).click()
-    page.wait_for_timeout(800)
+    time.sleep(0.8)
     return {
         "action": f"clic -> {candidate['label']}",
         "source": "détection automatique",
@@ -326,40 +856,77 @@ def activate_reading_mode(
     }
 
 
-def hydrate_lazy_content(page, expected: int | None, max_steps: int = 400) -> dict:
+def hydrate_lazy_content(
+    page,
+    expected: int | None,
+    max_steps: int = 400,
+    minimum_steps: int = 20,
+) -> dict:
     """Fait défiler le lecteur pour matérialiser les pages chargées à la demande."""
     stable_bottom = 0
+    stable_expected = 0
+    stable_progress = 0
     previous = None
     steps = 0
     for steps in range(1, max_steps + 1):
         state = page.evaluate(
             """
-            () => ({
-                imageCount: [...document.images].filter(img =>
-                    img.currentSrc || img.src || img.dataset.src ||
-                    img.dataset.lazySrc || img.dataset.original || img.dataset.url
-                ).length,
-                height: Math.max(document.body?.scrollHeight || 0,
-                    document.documentElement?.scrollHeight || 0),
-                y: window.scrollY,
-                viewport: window.innerHeight
-            })
+            () => {
+                const images = [...document.images];
+                const urls = images.map(img => img.dataset.src ||
+                    img.dataset.lazySrc || img.dataset.original || img.dataset.url ||
+                    img.getAttribute('data-lazy') || img.currentSrc || img.src || '');
+                const unresolved = urls.map((url, index) => ({url, index}))
+                    .filter(item => !item.url ||
+                        /(loading|placeholder|spinner|transparent|blank)(?:img)?\.(?:gif|png|webp|svg)(?:[?#]|$)/i
+                            .test(item.url));
+                return {
+                    imageCount: urls.filter(Boolean).length,
+                    resolvedCount: urls.length - unresolved.length,
+                    uniqueCount: new Set(urls.filter(Boolean)).size,
+                    unresolved: unresolved.map(item => item.index),
+                    height: Math.max(document.body?.scrollHeight || 0,
+                        document.documentElement?.scrollHeight || 0),
+                    y: window.scrollY,
+                    viewport: window.innerHeight
+                };
+            }
             """
         )
         at_bottom = state["y"] + state["viewport"] >= state["height"] - 4
-        signature = (state["imageCount"], state["height"])
+        signature = (state["resolvedCount"], state["uniqueCount"], state["height"])
+        if expected and state["resolvedCount"] >= expected:
+            stable_expected += 1
+        else:
+            stable_expected = 0
+        if stable_expected >= 3:
+            break
         if at_bottom and signature == previous:
             stable_bottom += 1
         else:
             stable_bottom = 0
-        if stable_bottom >= 3:
+        if signature == previous:
+            stable_progress += 1
+        else:
+            stable_progress = 0
+        if stable_bottom >= 3 and steps >= minimum_steps:
+            break
+        if stable_progress >= minimum_steps and steps >= minimum_steps:
             break
         previous = signature
-        page.evaluate("window.scrollBy(0, Math.max(window.innerHeight * 1.35, 600))")
-        page.wait_for_timeout(75)
+        if state["unresolved"]:
+            target = state["unresolved"][(steps - 1) % len(state["unresolved"])]
+            page.locator("img").nth(target).scroll_into_view_if_needed(timeout=5_000)
+        else:
+            page.evaluate("window.scrollBy(0, Math.max(window.innerHeight * 4, 2400))")
+        time.sleep(0.10)
     page.evaluate("window.scrollTo(0, 0)")
-    page.wait_for_timeout(250)
-    return {"steps": steps, "images_seen": state["imageCount"]}
+    time.sleep(0.25)
+    return {
+        "steps": steps,
+        "images_seen": state["imageCount"],
+        "images_ready": state["resolvedCount"],
+    }
 
 
 def collect_image_candidates(page, selector: str) -> list[dict]:
@@ -389,6 +956,9 @@ def collect_image_candidates(page, selector: str) -> list[dict]:
             const text = [image.id, image.className, image.alt, image.src,
                 image.parentElement?.id, image.parentElement?.className]
                 .join(' ').toLowerCase();
+            const decorative = /(logo|icon|avatar|emoji|banner|advert|sponsor|thumbnail|hero|favicon)/
+                .test([image.id, image.className, image.alt,
+                    image.getAttribute('role')].join(' ').toLowerCase());
             let score = 0;
             if (/(page|scan|reader|document|chapter|manga|comic)/.test(text)) score += 6;
             if (/(logo|icon|avatar|emoji|banner|advert|sponsor|thumbnail)/.test(text)) score -= 10;
@@ -406,9 +976,17 @@ def collect_image_candidates(page, selector: str) -> list[dict]:
             const attributes = [...image.attributes].map(attr => attr.name)
                 .filter(name => /^data-(page|document|reader)/i.test(name));
             const urlPattern = (url || '').replace(/\d+/g, '#');
-            return {position, url, width, height, score, classes,
+            let sequenceIndex = null;
+            try {
+                let sequenceUrl = new URL(url);
+                const proxied = sequenceUrl.searchParams.get('url');
+                if (proxied) sequenceUrl = new URL(proxied, document.baseURI);
+                const match = sequenceUrl.pathname.match(/(?:^|\/)(\d+)(?=\.[a-z0-9]+$)/i);
+                if (match) sequenceIndex = Number(match[1]);
+            } catch (_) {}
+            return {position, url, width, height, score, decorative, classes,
                 parentClasses, attributes, urlPattern,
-                dataIndex: image.dataset.index ?? null};
+                dataIndex: image.dataset.index ?? sequenceIndex};
         })
         """
     )
@@ -428,7 +1006,11 @@ def _auto_group(candidates: list[dict], expected: int | None) -> tuple[list[dict
     groups: dict[str, list[dict]] = defaultdict(list)
     descriptions: dict[str, str] = {}
     for item in candidates:
-        if not item.get("url") or item.get("score", 0) <= -5:
+        if (
+            not item.get("url")
+            or item.get("decorative")
+            or item.get("score", 0) <= -5
+        ):
             continue
         for class_name in item.get("classes", []):
             key = f"class:{class_name}"
@@ -460,6 +1042,21 @@ def _auto_group(candidates: list[dict], expected: int | None) -> tuple[list[dict
             continue
         scores = [item.get("score", 0) for item in items]
         rank = len(items) * 20 + sum(scores)
+        patterns = Counter(
+            str(item.get("urlPattern") or "") for item in items
+        )
+        if patterns:
+            dominant_pattern_count = max(patterns.values())
+            rank -= (len(items) - dominant_pattern_count) * 45
+        if (
+            key.startswith("url:")
+            and expected
+            and abs(len(items) - expected) >= max(3, round(expected * 0.03))
+        ):
+            # Un grand écart peut signaler un compteur de lecteur contaminé
+            # par des vignettes ou contrôles, tandis qu'une famille d'URL
+            # homogène reste une meilleure représentation des pages réelles.
+            rank += 300
         if expected:
             if len(items) == expected:
                 rank += 2000
@@ -494,7 +1091,31 @@ def discover_pages(
         selected = _deduplicate(collect_image_candidates(page, "img[data-document-page]"))
         source = "img[data-document-page]"
     else:
-        selected, source = _auto_group(collect_image_candidates(page, "img"), expected)
+        candidates = collect_image_candidates(page, "img")
+        try:
+            selected, source = _auto_group(candidates, expected)
+        except RuntimeError as exc:
+            surfaces = inspect_render_surfaces(page)
+            if (
+                surfaces["canvas_count"]
+                or surfaces["iframe_count"]
+                or surfaces["reader_hint"]
+            ):
+                count = surfaces.get("accessible_page_count")
+                count_text = (
+                    f", {count} emplacement(s) accessible(s) annoncé(s)"
+                    if count
+                    else ""
+                )
+                raise RuntimeError(
+                    "Lecteur canvas/PDF détecté "
+                    f"({surfaces['canvas_count']} canvas, "
+                    f"{surfaces['iframe_count']} iframe(s){count_text}). "
+                    "Les pages originales ne sont pas exposées comme images : "
+                    "extraction annulée pour éviter des logos ou des captures "
+                    "basse qualité."
+                ) from exc
+            raise
 
     pages = [
         {

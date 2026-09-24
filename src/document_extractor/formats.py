@@ -2,15 +2,159 @@ from __future__ import annotations
 
 import hashlib
 import html
+import posixpath
 import shutil
+import struct
 import subprocess
 import tempfile
 import time
 import zipfile
+from io import BytesIO
 from pathlib import Path
+from pathlib import PurePosixPath
+from urllib.parse import unquote, urlparse
+
+from defusedxml import ElementTree
 
 
-OUTPUT_FORMATS = ("cbz", "cbr", "pdf", "epub", "images")
+OUTPUT_FORMATS = ("original", "cbz", "cbr", "pdf", "epub", "images")
+PDF_IMAGE_DPI = (96, 96)
+
+
+def inspect_epub(data: bytes) -> dict:
+    """Valide un EPUB et retourne son paquet ainsi que son ordre de lecture."""
+    try:
+        with zipfile.ZipFile(BytesIO(data), "r") as archive:
+            names = set(archive.namelist())
+            if "mimetype" not in names or archive.read("mimetype").strip() != b"application/epub+zip":
+                raise ValueError("mimetype EPUB absent ou invalide")
+            if "META-INF/container.xml" not in names:
+                raise ValueError("META-INF/container.xml absent")
+            container = ElementTree.fromstring(archive.read("META-INF/container.xml"))
+            rootfile = container.find(".//{*}rootfile")
+            if rootfile is None or not rootfile.get("full-path"):
+                raise ValueError("chemin du paquet OPF absent")
+            package_path = posixpath.normpath(rootfile.get("full-path"))
+            if package_path.startswith("../") or package_path not in names:
+                raise ValueError("paquet OPF introuvable")
+            package = ElementTree.fromstring(archive.read(package_path))
+            package_dir = posixpath.dirname(package_path)
+            manifest = {
+                item.get("id"): item
+                for item in package.findall(".//{*}manifest/{*}item")
+                if item.get("id")
+            }
+            spine_paths: list[str] = []
+            for itemref in package.findall(".//{*}spine/{*}itemref"):
+                item = manifest.get(itemref.get("idref"))
+                if item is None or item.get("media-type") != "application/xhtml+xml":
+                    continue
+                href = unquote(item.get("href") or "")
+                path = posixpath.normpath(posixpath.join(package_dir, href))
+                if path.startswith("../") or path not in names:
+                    raise ValueError(f"section EPUB introuvable : {href}")
+                spine_paths.append(path)
+            if not spine_paths:
+                raise ValueError("ordre de lecture EPUB vide")
+            referenced_documents: set[str] = set()
+            navigation_paths = [
+                path
+                for path, item in (
+                    (
+                        posixpath.normpath(
+                            posixpath.join(package_dir, unquote(entry.get("href") or ""))
+                        ),
+                        entry,
+                    )
+                    for entry in manifest.values()
+                )
+                if item.get("media-type") == "application/xhtml+xml"
+                and (
+                    "nav" in (item.get("properties") or "").split()
+                    or "toc" in (item.get("id") or "").casefold()
+                    or "toc" in posixpath.basename(path).casefold()
+                )
+                and path in names
+            ]
+            for navigation_path in navigation_paths:
+                navigation = ElementTree.fromstring(archive.read(navigation_path))
+                navigation_dir = posixpath.dirname(navigation_path)
+                for element in navigation.iter():
+                    href = unquote(element.get("href") or "").strip()
+                    parsed = urlparse(href)
+                    if not href or parsed.scheme or parsed.netloc:
+                        continue
+                    document_path = posixpath.normpath(
+                        posixpath.join(navigation_dir, parsed.path)
+                    )
+                    if document_path.lower().endswith((".xhtml", ".html", ".htm")):
+                        referenced_documents.add(document_path)
+
+            local_entries: list[str] = []
+            position = 0
+            while True:
+                position = data.find(b"PK\x03\x04", position)
+                if position < 0 or position + 30 > len(data):
+                    break
+                fields = struct.unpack_from("<IHHHHHIIIHH", data, position)
+                name_length, extra_length = fields[-2], fields[-1]
+                name_start = position + 30
+                name_end = name_start + name_length
+                local_entries.append(
+                    data[name_start:name_end].decode("utf-8", errors="replace")
+                )
+                position = name_end + extra_length
+
+            end_offset = data.rfind(b"PK\x05\x06")
+            trailing_bytes = None
+            if end_offset >= 0 and end_offset + 22 <= len(data):
+                comment_length = struct.unpack_from("<H", data, end_offset + 20)[0]
+                trailing_bytes = max(
+                    len(data) - (end_offset + 22 + comment_length), 0
+                )
+            missing_references = sorted(referenced_documents - names)
+            present_references = sorted(referenced_documents & names)
+            orphan_local_entries = sorted(set(local_entries) - names)
+            title_node = package.find(".//{http://purl.org/dc/elements/1.1/}title")
+            return {
+                "package_path": package_path,
+                "spine_paths": spine_paths,
+                "spine_item_count": len(spine_paths),
+                "title": (title_node.text or "").strip() if title_node is not None else "",
+                "entry_count": len(names),
+                "referenced_document_count": len(referenced_documents),
+                "present_referenced_documents": present_references,
+                "missing_referenced_documents": missing_references,
+                "orphan_local_entries": orphan_local_entries,
+                "local_entry_count": len(local_entries),
+                "trailing_bytes_after_eocd": trailing_bytes,
+                "is_structurally_complete": not missing_references,
+            }
+    except (zipfile.BadZipFile, ElementTree.ParseError, KeyError) as exc:
+        raise ValueError(f"EPUB invalide : {exc}") from exc
+
+
+def _extract_epub_safely(data: bytes, target: Path) -> dict:
+    info = inspect_epub(data)
+    target.mkdir(parents=True, exist_ok=True)
+    target_root = target.resolve()
+    with zipfile.ZipFile(BytesIO(data), "r") as archive:
+        for member in archive.infolist():
+            relative = PurePosixPath(member.filename)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise RuntimeError(f"Chemin EPUB dangereux : {member.filename}")
+            if (member.external_attr >> 16) & 0o170000 == 0o120000:
+                raise RuntimeError(f"Lien symbolique refusé dans l'EPUB : {member.filename}")
+            destination = target.joinpath(*relative.parts).resolve()
+            if destination != target_root and target_root not in destination.parents:
+                raise RuntimeError(f"Chemin EPUB hors dossier : {member.filename}")
+            if member.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member, "r") as source, destination.open("wb") as output:
+                shutil.copyfileobj(source, output)
+    return info
 
 
 def file_sha256(path: Path) -> str:
@@ -113,6 +257,15 @@ def create_cbr(files: list[Path], output_path: Path) -> Path:
         raise
 
 
+def _bitmap_pdf_bytes(files: list[Path], img2pdf) -> bytes:
+    """Fixe seulement l'échelle PDF; les pixels source ne sont pas rééchantillonnés."""
+    layout = img2pdf.get_fixed_dpi_layout_fun(PDF_IMAGE_DPI)
+    return img2pdf.convert(
+        [str(path) for path in files],
+        layout_fun=layout,
+    )
+
+
 def create_pdf(
     files: list[Path],
     output_path: Path,
@@ -133,7 +286,7 @@ def create_pdf(
     partial = _atomic_target(output_path)
     partial.unlink(missing_ok=True)
     try:
-        partial.write_bytes(img2pdf.convert([str(path) for path in files]))
+        partial.write_bytes(_bitmap_pdf_bytes(files, img2pdf))
         if not partial.read_bytes()[:5] == b"%PDF-":
             raise RuntimeError("Le PDF produit est invalide.")
         _replace_atomic(partial, output_path)
@@ -165,6 +318,8 @@ def _render_svg_pdf_with_chrome(
             str(chrome),
             "--headless=new",
             "--disable-gpu",
+            "--disable-background-networking",
+            "--allow-file-access-from-files",
             "--no-pdf-header-footer",
             "--no-first-run",
             f"--user-data-dir={profile_dir}",
@@ -190,6 +345,107 @@ def _render_svg_pdf_with_chrome(
             f"Échec du rendu Chrome de {source.name} : "
             f"{details or result.returncode}"
         )
+
+
+def create_pdf_from_epub_bytes(
+    data: bytes,
+    output_path: Path,
+    chrome_executable: Path,
+) -> tuple[Path, dict]:
+    """Imprime chaque section XHTML d'un EPUB avec Chrome puis fusionne le PDF."""
+    if not chrome_executable.is_file():
+        raise RuntimeError(f"Chrome introuvable : {chrome_executable}")
+    try:
+        import pikepdf
+    except ImportError as exc:
+        raise RuntimeError(
+            "La conversion EPUB vers PDF demande pikepdf : "
+            "`python -m pip install -e \".[pdf]\"`."
+        ) from exc
+
+    partial = _atomic_target(output_path)
+    partial.unlink(missing_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="komaforge-epub-render-") as temp:
+            root = Path(temp)
+            source_root = root / "source"
+            info = _extract_epub_safely(data, source_root)
+            page_pdfs: list[Path] = []
+            for index, relative in enumerate(info["spine_paths"], start=1):
+                source = source_root.joinpath(*PurePosixPath(relative).parts)
+                page_pdf = root / f"section-{index:04d}.pdf"
+                _render_svg_pdf_with_chrome(
+                    chrome_executable,
+                    source,
+                    page_pdf,
+                    root / f"chrome-profile-{index:04d}",
+                )
+                page_pdfs.append(page_pdf)
+
+            output = pikepdf.Pdf.new()
+            sources = []
+            try:
+                for page_pdf in page_pdfs:
+                    source_pdf = pikepdf.Pdf.open(page_pdf)
+                    sources.append(source_pdf)
+                    output.pages.extend(source_pdf.pages)
+                output.save(partial)
+            finally:
+                for source_pdf in sources:
+                    source_pdf.close()
+                output.close()
+
+        with pikepdf.Pdf.open(partial) as verification:
+            page_count = len(verification.pages)
+            if page_count < 1:
+                raise RuntimeError("La conversion EPUB n'a produit aucune page PDF.")
+        _replace_atomic(partial, output_path)
+        return output_path, {**info, "page_count": page_count}
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
+
+
+def render_pdf_bytes_to_images(
+    data: bytes,
+    output_dir: Path,
+    dpi: int = 200,
+) -> list[Path]:
+    """Rasterise toutes les pages d'un PDF en PNG sans perte supplémentaire."""
+    try:
+        import pypdfium2 as pdfium
+    except ImportError as exc:
+        raise RuntimeError(
+            "La conversion d'un document vers CBZ, CBR, EPUB fixe ou images "
+            "demande pypdfium2 : `python -m pip install -e \".[conversion]\"`."
+        ) from exc
+    if dpi < 72:
+        raise ValueError("La résolution de rendu PDF doit être d'au moins 72 ppp.")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    document = pdfium.PdfDocument(data)
+    files: list[Path] = []
+    try:
+        for index in range(len(document)):
+            page = document[index]
+            bitmap = None
+            try:
+                bitmap = page.render(scale=dpi / 72)
+                image = bitmap.to_pil()
+                output = output_dir / f"page-{index + 1:04d}.png"
+                image.save(output, format="PNG", optimize=False)
+                if output.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+                    raise RuntimeError(f"Rendu PNG invalide : {output.name}")
+                files.append(output)
+            finally:
+                if bitmap is not None:
+                    bitmap.close()
+                page.close()
+    finally:
+        document.close()
+    if not files:
+        raise RuntimeError("Le PDF à convertir ne contient aucune page.")
+    return files
 
 
 def _create_mixed_pdf(
@@ -227,7 +483,7 @@ def _create_mixed_pdf(
                         temp_dir / f"chrome-profile-{index:04d}",
                     )
                 else:
-                    page_pdf.write_bytes(img2pdf.convert(str(source)))
+                    page_pdf.write_bytes(_bitmap_pdf_bytes([source], img2pdf))
                 page_pdfs.append(page_pdf)
 
             output = pikepdf.Pdf.new()
@@ -373,12 +629,15 @@ def create_selected_output(
     output_dir: Path,
     title: str,
     chrome_executable: Path | None = None,
+    output_stem: str = "document",
 ) -> Path:
     if not files:
         raise RuntimeError("Aucune page à exporter.")
     if output_format == "images":
         return files[0].parent
-    output_path = output_dir / f"document.{output_format}"
+    if not output_stem or Path(output_stem).name != output_stem:
+        raise ValueError("Nom de sortie invalide.")
+    output_path = output_dir / f"{output_stem}.{output_format}"
     if output_format == "cbz":
         return create_cbz(files, output_path)
     if output_format == "cbr":

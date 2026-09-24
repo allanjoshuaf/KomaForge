@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -34,6 +35,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--selector", help="Sélecteur CSS des images (facultatif)")
     parser.add_argument("--expected", type=int, help="Nombre de pages attendu")
     parser.add_argument("--output", type=Path, help="Dossier de sortie")
+    parser.add_argument(
+        "--inspect",
+        action="store_true",
+        help="Analyse l'œuvre, les chapitres et les pages sans rien télécharger",
+    )
+    parser.add_argument(
+        "--scope",
+        choices=("auto", "document", "work"),
+        default="auto",
+        help="Portée : détection automatique, document courant ou œuvre complète",
+    )
+    parser.add_argument(
+        "--chapters",
+        default="all",
+        help="Parties d'une œuvre (chapitres/volumes) : all ou 1-3,5",
+    )
     parser.add_argument("--reading-mode-selector", help="Contrôle du mode continu")
     parser.add_argument("--reading-mode-value", help="Valeur du mode continu")
     parser.add_argument("--allow-host", action="append", default=[])
@@ -45,15 +62,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--format",
         choices=OUTPUT_FORMATS,
         dest="output_format",
-        help="Sortie unique : cbz, cbr, pdf, epub ou images (défaut : cbz)",
+        help=(
+            "Sortie unique : original, cbz, cbr, pdf, epub ou images "
+            "(défaut en ligne de commande : cbz)"
+        ),
     )
     parser.add_argument(
         "--pdf",
         action="store_true",
         help="Alias historique de --format pdf",
     )
-    parser.add_argument("--allow-partial", action="store_true")
+    parser.add_argument(
+        "--recover-detached-pdf",
+        action="store_true",
+        help=(
+            "Reconstruire un arbre PDF détaché uniquement pour un document "
+            "que vous possédez ou êtes autorisé à tester"
+        ),
+    )
     parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        choices=range(1, 13),
+        default=6,
+        metavar="1-12",
+        help="Téléchargements d'images simultanés (défaut : 6)",
+    )
     parser.add_argument("--max-image-mb", type=int, default=50)
     parser.add_argument(
         "--watermarks",
@@ -70,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Texte SVG exact à retirer; l'option peut être répétée",
     )
+    parser.set_defaults(interactive=False)
     return parser
 
 
@@ -82,6 +118,7 @@ def ask_yes_no(prompt: str, default: bool = False) -> bool:
 
 
 def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
+    args.interactive = True
     print("\nKomaForge")
     print("1. Extraction automatique (recommandé)")
     print("2. Extraction avec options avancées")
@@ -101,20 +138,34 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
     ).strip()
     if custom_output:
         args.output = Path(custom_output).expanduser()
-    print("\nFormat de sortie — un seul fichier ou dossier sera conservé :")
-    print("1. CBZ — images originales, recommandé pour manga/BD")
-    print("2. CBR — archive RAR, demande WinRAR/rar")
-    print("3. PDF — mise en pages fixe")
-    print("4. EPUB — livre numérique à mise en pages fixe")
-    print("5. Images — fichiers originaux dans un dossier")
+    print("\nFormat de sortie — vous gardez toujours le choix :")
+    print("1. Original — PDF/EPUB natif, ou CBZ pour des pages image (recommandé)")
+    print("2. CBZ — images originales ou pages rendues depuis le document")
+    print("3. CBR — archive RAR, demande WinRAR/rar")
+    print("4. PDF — document original ou conversion à mise en pages fixe")
+    print("5. EPUB — livre original ou EPUB fixe construit depuis les pages")
+    print("6. Images — fichiers originaux ou pages rendues dans un dossier")
     format_choice = input("Format [1] : ").strip() or "1"
-    format_map = {"1": "cbz", "2": "cbr", "3": "pdf", "4": "epub", "5": "images"}
+    format_map = {
+        "1": "original",
+        "2": "cbz",
+        "3": "cbr",
+        "4": "pdf",
+        "5": "epub",
+        "6": "images",
+    }
     if format_choice not in format_map:
         raise SystemExit("Format invalide.")
     args.output_format = format_map[format_choice]
     args.wait_for_user = ask_yes_no("Le site demande-t-il une connexion manuelle ?")
 
     if choice == "2":
+        args.scope = (
+            input("Portée [auto/document/work, défaut auto] : ").strip().lower()
+            or "auto"
+        )
+        if args.scope not in {"auto", "document", "work"}:
+            raise SystemExit("Portée invalide.")
         args.selector = input("Sélecteur CSS des pages [auto] : ").strip() or None
         raw_expected = input("Nombre de pages attendu [auto] : ").strip()
         if raw_expected:
@@ -135,6 +186,8 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
         exact_texts = input("Texte exact supplémentaire à retirer [aucun] : ").strip()
         if exact_texts:
             args.watermark_text.append(exact_texts)
+    if args.scope != "document":
+        args.chapters = "ask"
     return args
 
 
@@ -144,12 +197,28 @@ def validate_url(url: str) -> None:
         raise SystemExit("L'URL doit commencer par http:// ou https://")
 
 
+def normalize_url_input(value: str) -> str:
+    """Accepte aussi un lien Markdown copié par erreur depuis une conversation."""
+    value = value.strip()
+    markdown = re.fullmatch(r"\[(https?://[^\]]+)\]\((https?://[^)]+)\)", value)
+    if markdown:
+        label, target = markdown.groups()
+        if label != target:
+            raise SystemExit(
+                "Le texte et la cible du lien Markdown sont différents; "
+                "collez directement l'URL voulue."
+            )
+        return target
+    return value
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = build_parser().parse_args(argv)
     if not args.url:
         if not sys.stdin.isatty():
             raise SystemExit("URL manquante. Ajoutez une URL ou lancez le menu interactif.")
         args = interactive_setup(args)
+    args.url = normalize_url_input(args.url)
     validate_url(args.url)
     if args.pdf and args.output_format and args.output_format != "pdf":
         raise SystemExit("Utilisez soit --pdf, soit --format, pas les deux.")
@@ -167,8 +236,11 @@ def main(argv: list[str] | None = None) -> int:
     from .engine import run
 
     print(f"URL : {args.url}")
-    print(f"Sortie : {args.output}")
-    print(f"Format : {args.output_format}")
+    if args.inspect:
+        print("Mode : inspection uniquement (aucun téléchargement)")
+    else:
+        print(f"Sortie : {args.output}")
+        print(f"Format : {args.output_format}")
     try:
         return run(args)
     except KeyboardInterrupt:

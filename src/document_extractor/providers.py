@@ -8,11 +8,27 @@ from .detection import ExpectedCount, PAGE_TIMEOUT_MS
 
 
 @dataclass(frozen=True)
+class ChapterDiscovery:
+    index: int
+    number: str
+    title: str
+    source_url: str
+    pages: list[dict]
+    expected: ExpectedCount | None = None
+
+
+@dataclass(frozen=True)
 class ProviderDiscovery:
     name: str
-    pages: list[dict]
-    expected: ExpectedCount
+    publication_type: str
+    title: str
+    chapters: list[ChapterDiscovery]
     allowed_hosts: set[str]
+
+    @property
+    def pages(self) -> list[dict]:
+        """Vue aplatie conservée pour les consommateurs qui inspectent une publication."""
+        return [page for chapter in self.chapters for page in chapter.pages]
 
 
 def _calameo_book_code(url: str) -> str | None:
@@ -23,7 +39,11 @@ def _calameo_book_code(url: str) -> str | None:
     return match.group(1) if match else None
 
 
-def build_calameo_pages(content: dict, loaded_urls: list[str]) -> ProviderDiscovery:
+def build_calameo_pages(
+    content: dict,
+    loaded_urls: list[str],
+    source_url: str = "",
+) -> ProviderDiscovery:
     document = content.get("document") or {}
     total = int(document.get("pages") or 0)
     if total <= 0 or total > 100_000:
@@ -69,10 +89,25 @@ def build_calameo_pages(content: dict, loaded_urls: list[str]) -> ProviderDiscov
         }
         for number in range(1, total + 1)
     ]
+    title = str(content.get("name") or content.get("title") or "Document Calaméo").strip()
     return ProviderDiscovery(
         name="calameo",
-        pages=pages,
-        expected=ExpectedCount(total, "manifeste public Calaméo", "élevée"),
+        publication_type="book",
+        title=title,
+        chapters=[
+            ChapterDiscovery(
+                index=1,
+                number="1",
+                title=title,
+                source_url=source_url,
+                pages=pages,
+                expected=ExpectedCount(
+                    total,
+                    "manifeste public Calaméo",
+                    "élevée",
+                ),
+            )
+        ],
         allowed_hosts={secured_host},
     )
 
@@ -103,4 +138,4 @@ def discover_provider(context, page, url: str) -> ProviderDiscovery | None:
     loaded_urls = locator.evaluate_all(
         "images => images.map(image => image.currentSrc || image.src).filter(Boolean)"
     )
-    return build_calameo_pages(payload["content"], loaded_urls)
+    return build_calameo_pages(payload["content"], loaded_urls, url)

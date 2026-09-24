@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
+import base64
+import hashlib
 import json
 import os
 import subprocess
@@ -10,9 +13,29 @@ import unittest
 import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
-from document_extractor.detection import normalize_selector_input
-from document_extractor.engine import navigate_to_source
+from document_extractor.detection import (
+    _auto_group,
+    looks_like_chapter_url,
+    normalize_chapter_candidates,
+    normalize_selectable_part_candidates,
+    normalize_selector_input,
+    select_chapters,
+)
+from document_extractor.engine import (
+    ChapterTask,
+    _ask_interactive_detached_recovery,
+    _fetch_pdf_in_ranges,
+    download_pages,
+    inspect_detached_page_trees,
+    navigate_to_source,
+    recover_detached_page_tree,
+    resolve_part_selection,
+    run,
+    trusted_selected_resource_hosts,
+)
+from tests.mock_site import DETACHED_TREE_PDF, NETWORK_EPUB, PNG, SVG
 from tests.mock_site import MockDocumentHandler
 
 
@@ -33,6 +56,137 @@ class SelectorInputTests(unittest.TestCase):
             normalize_selector_input('<img class="ts-main-image lazy" ...>'),
             "img.ts-main-image.lazy",
         )
+
+
+class ChapterDiscoveryTests(unittest.TestCase):
+    def test_recognizes_when_the_input_is_already_a_chapter(self):
+        self.assertTrue(
+            looks_like_chapter_url("https://example.test/manga/demo/chapter-12.5")
+        )
+        self.assertFalse(looks_like_chapter_url("https://example.test/manga/demo"))
+
+    def test_prefers_a_numbered_page_family_over_reader_noise(self):
+        candidates = []
+        for index in range(161):
+            candidates.append(
+                {
+                    "position": index + 1,
+                    "url": f"https://proxy.test/img?url=/book/1/{index}.webp",
+                    "urlPattern": "https://proxy.test/img?url=/book/#/#.webp",
+                    "classes": [],
+                    "parentClasses": ["reader-page"],
+                    "attributes": [],
+                    "score": 13,
+                    "decorative": False,
+                }
+            )
+        for index in range(12):
+            candidates.append(
+                {
+                    "position": 162 + index,
+                    "url": f"https://proxy.test/img?url=/thumb/recommendation-{index}.webp",
+                    "urlPattern": (
+                        f"https://proxy.test/img?url=/thumb/recommendation-{index}.webp"
+                    ),
+                    "classes": [],
+                    "parentClasses": ["reader-page"],
+                    "attributes": [],
+                    "score": 6,
+                    "decorative": False,
+                }
+            )
+
+        selected, source = _auto_group(candidates, expected=177)
+
+        self.assertEqual(len(selected), 161)
+        self.assertEqual(source, "motif d'URL répété")
+        self.assertTrue(all("/book/" in item["url"] for item in selected))
+
+    def test_keeps_same_site_chapters_and_orders_them_numerically(self):
+        chapters = normalize_chapter_candidates(
+            [
+                {"title": "Chapitre 10", "url": "/manga/demo/chapter-10"},
+                {"title": "Chapitre 2", "url": "/manga/demo/chapter-2#reader"},
+                {"title": "Chapitre 1", "url": "/manga/demo/chapter-1"},
+                {"title": "Chapitre 99", "url": "https://other.test/chapter-99"},
+            ],
+            "https://example.test/manga/demo",
+        )
+
+        self.assertEqual([chapter.number for chapter in chapters], ["1", "2", "10"])
+        self.assertEqual(chapters[1].url, "https://example.test/manga/demo/chapter-2")
+
+    def test_rejects_previous_next_navigation_as_too_ambiguous(self):
+        chapters = normalize_chapter_candidates(
+            [
+                {"title": "Chapitre 4", "url": "/manga/demo/chapter-4"},
+                {"title": "Chapitre 6", "url": "/manga/demo/chapter-6"},
+            ],
+            "https://example.test/manga/demo/chapter-5",
+        )
+        self.assertEqual(chapters, [])
+
+    def test_selects_ranges_without_changing_reading_order(self):
+        chapters = normalize_chapter_candidates(
+            [
+                {"title": f"Chapitre {number}", "url": f"/chapter-{number}"}
+                for number in range(1, 7)
+            ],
+            "https://example.test/work",
+        )
+        selected = select_chapters(chapters, "2-3,5")
+        self.assertEqual([chapter.number for chapter in selected], ["2", "3", "5"])
+
+    def test_rejects_a_chapter_outside_the_detected_work(self):
+        chapters = normalize_chapter_candidates(
+            [
+                {"title": f"Chapitre {number}", "url": f"/chapter-{number}"}
+                for number in range(1, 4)
+            ],
+            "https://example.test/work",
+        )
+        with self.assertRaisesRegex(ValueError, "hors plage"):
+            select_chapters(chapters, "4")
+
+    def test_recognizes_a_numbered_volume_menu(self):
+        parts = normalize_selectable_part_candidates(
+            [
+                {
+                    "selector": "#selectParts",
+                    "options": [
+                        {"title": "Volume 10", "value": "v10"},
+                        {"title": "Volume 2", "value": "v2"},
+                        {"title": "Volume 1", "value": "v1"},
+                    ],
+                },
+                {
+                    "selector": "#readingSpeed",
+                    "options": [
+                        {"title": "Vitesse x1", "value": "1"},
+                        {"title": "Vitesse x2", "value": "2"},
+                    ],
+                },
+            ]
+        )
+
+        self.assertEqual([part.number for part in parts], ["1", "2", "10"])
+        self.assertEqual([part.value for part in parts], ["v1", "v2", "v10"])
+        self.assertTrue(all(part.kind == "volume" for part in parts))
+
+    def test_interactive_collection_defaults_to_only_the_first_part(self):
+        parts = [
+            ChapterTask(
+                index=index,
+                number=str(index),
+                title=f"Volume {index}",
+                source_url="https://example.test/work",
+                kind="volume",
+            )
+            for index in range(1, 4)
+        ]
+        with patch("builtins.input", return_value=""):
+            selected = resolve_part_selection(parts, "ask", "volume")
+        self.assertEqual([part.index for part in selected], [1])
 
 
 class FakePage:
@@ -99,6 +253,172 @@ class NavigationRecoveryTests(unittest.TestCase):
         self.assertEqual(unsafe.calls, ["http://example.test/"])
 
 
+class ResumeTests(unittest.TestCase):
+    def test_existing_svg_is_cleaned_before_it_is_reused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            images = Path(temp)
+            existing = images / "page-0001.svg"
+            existing.write_bytes(SVG)
+            (images / ".komaforge-resume.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "pages": {
+                            "1": {
+                                "url": "https://example.test/page-1.svg",
+                                "file": existing.name,
+                                "sha256": hashlib.sha256(SVG).hexdigest(),
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            results, missing = download_pages(
+                context=None,
+                pages=[{"page": 1, "url": "https://example.test/page-1.svg"}],
+                images_dir=images,
+                source_url="https://example.test/book",
+                allowed_hosts={"example.test"},
+                retries=1,
+                max_image_bytes=1024 * 1024,
+                watermark_policy="remove",
+                watermark_texts=[],
+            )
+
+            self.assertEqual(missing, [])
+            self.assertEqual(results[0]["status"], "cleaned-existing")
+            self.assertEqual(results[0]["watermarks_removed"], 1)
+            self.assertNotIn(b"SPECIMEN", existing.read_bytes())
+
+    def test_stale_page_number_is_replaced_when_its_source_is_unknown(self):
+        with tempfile.TemporaryDirectory() as temp:
+            images = Path(temp)
+            stale = images / "page-0001.gif"
+            stale.write_bytes(b"GIF89a-stale-placeholder")
+            image_url = "data:image/png;base64," + base64.b64encode(PNG).decode("ascii")
+
+            results, missing = download_pages(
+                context=None,
+                pages=[{"page": 1, "url": image_url}],
+                images_dir=images,
+                source_url="https://example.test/book",
+                allowed_hosts={"example.test"},
+                retries=1,
+                max_image_bytes=1024 * 1024,
+                watermark_policy="remove",
+                watermark_texts=[],
+            )
+
+            self.assertEqual(missing, [])
+            self.assertEqual(results[0]["file"], "page-0001.png")
+            self.assertFalse(stale.exists())
+            self.assertEqual((images / "page-0001.png").read_bytes(), PNG)
+
+
+class SelectedResourceHostTests(unittest.TestCase):
+    def test_trusts_only_a_repeated_https_host_in_selected_pages(self):
+        pages = [
+            {"page": index, "url": f"https://cdn.example.net/page-{index}.webp"}
+            for index in range(1, 10)
+        ]
+        pages.extend(
+            [
+                {"page": 10, "url": "https://reader.example.org/placeholder.gif"},
+                {"page": 11, "url": "https://ads.example.net/banner.gif"},
+            ]
+        )
+
+        trusted = trusted_selected_resource_hosts(
+            pages,
+            "https://reader.example.org/book",
+            {"reader.example.org"},
+        )
+
+        self.assertEqual(trusted, {"cdn.example.net": 9})
+
+    def test_does_not_trust_http_or_an_isolated_external_resource(self):
+        pages = [
+            {"page": 1, "url": "http://cdn.example.net/page-1.webp"},
+            {"page": 2, "url": "https://unknown.example.net/page-2.webp"},
+            {"page": 3, "url": "https://reader.example.org/page-3.webp"},
+        ]
+
+        trusted = trusted_selected_resource_hosts(
+            pages,
+            "https://reader.example.org/book",
+            {"reader.example.org"},
+        )
+
+        self.assertEqual(trusted, {})
+
+
+class PdfTransportTests(unittest.TestCase):
+    def test_large_pdf_is_reassembled_from_verified_byte_ranges(self):
+        payload = b"%PDF-test-payload"
+
+        class FakeResponse:
+            status = 206
+
+            def __init__(self, body):
+                self._body = body
+
+            def body(self):
+                return self._body
+
+        class FakeRequestContext:
+            def __init__(self):
+                self.ranges = []
+
+            def fetch(self, _url, *, method, headers, timeout):
+                self.assertions = (method, timeout)
+                value = headers["range"].removeprefix("bytes=")
+                start, end = (int(item) for item in value.split("-", 1))
+                self.ranges.append((start, end))
+                return FakeResponse(payload[start : end + 1])
+
+        class FakeContext:
+            def __init__(self):
+                self.request = FakeRequestContext()
+
+        class FakeRequest:
+            url = "https://example.test/book.pdf"
+
+        context = FakeContext()
+        with patch("document_extractor.engine.PDF_RANGE_CHUNK_BYTES", 4):
+            recovered = _fetch_pdf_in_ranges(
+                context, FakeRequest(), {"cookie": "session=test"}, len(payload)
+            )
+
+        self.assertEqual(recovered, payload)
+        self.assertEqual(
+            context.request.ranges,
+            [(0, 3), (4, 7), (8, 11), (12, 15), (16, 16)],
+        )
+        self.assertEqual(context.request.assertions, ("GET", 60_000))
+
+    def test_interactive_recovery_is_offered_only_for_one_complete_tree(self):
+        args = type("Args", (), {"interactive": True, "inspect": False})()
+        diagnostics = {
+            "detached_ordered_page_trees": [
+                {
+                    "declared_count": 10,
+                    "is_structurally_complete": True,
+                }
+            ]
+        }
+        with patch("builtins.input", return_value="oui") as prompt:
+            accepted = _ask_interactive_detached_recovery(args, diagnostics, 10)
+        self.assertTrue(accepted)
+        prompt.assert_called_once()
+
+        with patch("builtins.input") as prompt:
+            refused = _ask_interactive_detached_recovery(args, diagnostics, 11)
+        self.assertFalse(refused)
+        prompt.assert_not_called()
+
+
 @unittest.skipUnless(os.environ.get("RUN_EXTRACTOR_E2E") == "1", "test navigateur facultatif")
 class EndToEndDetectionTests(unittest.TestCase):
     @classmethod
@@ -136,6 +456,9 @@ class EndToEndDetectionTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             manifest = json.loads((Path(temp) / "pages.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["publication"]["type"], "document")
+            self.assertEqual(manifest["publication"]["chapter_count"], 1)
+            self.assertEqual(manifest["publication"]["chapters"][0]["page_count"], 5)
             self.assertEqual(manifest["expected"], 5)
             self.assertEqual(manifest["detected"], 5)
             self.assertIn("full", manifest["reading_mode"]["action"])
@@ -153,6 +476,609 @@ class EndToEndDetectionTests(unittest.TestCase):
                 )
             self.assertEqual(manifest["output_format"], "cbz")
             self.assertEqual(manifest["artifact"]["path"], "document.cbz")
+
+    def test_reader_without_loading_text_waits_for_delayed_images(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/delayed-image-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--inspect",
+                    "--scope",
+                    "document",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            output = result.stdout + result.stderr
+            self.assertIn("Initialisation du lecteur", output)
+            self.assertIn("Ressources de page trouvées : 3", output)
+            self.assertIn("Pages attendues : 3", output)
+
+    def test_canvas_reader_rejects_logos_and_reports_accessible_pages(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/canvas-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--inspect",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            output = result.stdout + result.stderr
+            self.assertIn("Lecteur canvas/PDF détecté", output)
+            self.assertIn("39 emplacement(s) accessible(s)", output)
+            self.assertIn("captures basse qualité", output)
+            self.assertFalse((Path(temp) / "pages.json").exists())
+            self.assertFalse((Path(temp) / "images").exists())
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_canvas_reader_preserves_loaded_pdf_resource(self):
+        import pikepdf
+
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/network-pdf-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "pdf",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("ressource PDF chargée par le navigateur", result.stdout)
+            self.assertIn("Pages du PDF : 3", result.stdout)
+            artifact = Path(temp) / "document.pdf"
+            self.assertTrue(artifact.is_file())
+            with pikepdf.Pdf.open(artifact) as document:
+                self.assertEqual(len(document.pages), 3)
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["detected"], 3)
+            self.assertEqual(manifest["selector"], "network:application/pdf")
+            self.assertEqual(manifest["resource_unit"], "pdf_document")
+            self.assertFalse((Path(temp) / "images").exists())
+
+    @unittest.skipUnless(importlib.util.find_spec("pypdfium2"), "pypdfium2 absent")
+    def test_network_pdf_can_be_converted_to_cbz_when_selected(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/network-pdf-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "cbz",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=180,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            with zipfile.ZipFile(Path(temp) / "document.cbz") as archive:
+                self.assertEqual(
+                    archive.namelist(),
+                    ["page-0001.png", "page-0002.png", "page-0003.png"],
+                )
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["output_format"], "cbz")
+            self.assertEqual(manifest["resource_unit"], "rendered_pdf_page")
+            self.assertEqual(manifest["render_dpi"], 200)
+            self.assertFalse((Path(temp) / ".komaforge-work").exists())
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_network_pdf_is_not_declared_complete_when_metadata_announces_more(self):
+        project = Path(__file__).resolve().parents[1]
+        url = (
+            f"http://127.0.0.1:{self.server.server_port}"
+            "/network-pdf-reader-incomplete"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "pdf",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("[INCOMPLET] Publication : 3/10 pages", result.stdout)
+            self.assertIn("Aucun PDF sauvegardé", result.stdout)
+            self.assertFalse((Path(temp) / "document.partial.pdf").exists())
+            self.assertFalse((Path(temp) / "document.pdf").exists())
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["expected"], 10)
+            self.assertEqual(manifest["detected"], 3)
+            self.assertEqual(manifest["saved"], 0)
+            self.assertEqual(manifest["missing_count"], 7)
+            self.assertEqual(manifest["missing"], ["4-10"])
+            self.assertIn("pdf_diagnostics", manifest)
+            trees = manifest["pdf_diagnostics"]["detached_ordered_page_trees"]
+            self.assertEqual(len(trees), 1)
+            self.assertEqual(trees[0]["declared_count"], 10)
+            self.assertEqual(trees[0]["visible_prefix_matches"], 3)
+            self.assertTrue(trees[0]["is_visible_prefix"])
+            self.assertEqual(trees[0]["continuation_count"], 7)
+            self.assertEqual(trees[0]["continuation_with_content"], 7)
+            self.assertEqual(trees[0]["continuation_with_resources"], 7)
+            self.assertIn(
+                "3 pages visibles correspondent au préfixe", result.stdout
+            )
+            self.assertEqual(manifest["publication"]["status"], "incomplete")
+            self.assertEqual(
+                manifest["publication"]["chapters"][0]["status"], "incomplete"
+            )
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_detached_page_tree_inspector_is_independent_and_read_only(self):
+        diagnostics = inspect_detached_page_trees(DETACHED_TREE_PDF)
+        self.assertEqual(diagnostics["visible_page_count"], 3)
+        trees = diagnostics["detached_ordered_page_trees"]
+        self.assertEqual(len(trees), 1)
+        self.assertEqual(trees[0]["declared_count"], 10)
+        self.assertEqual(trees[0]["resolved_page_count"], 10)
+        self.assertTrue(trees[0]["count_matches_resolved"])
+        self.assertEqual(trees[0]["visible_prefix_matches"], 3)
+        self.assertEqual(trees[0]["continuation_count"], 7)
+        self.assertTrue(trees[0]["is_structurally_complete"])
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_detached_page_tree_recovery_creates_a_valid_complete_pdf(self):
+        import pikepdf
+        from io import BytesIO
+
+        recovered, details = recover_detached_page_tree(DETACHED_TREE_PDF, 10)
+        self.assertEqual(details["source_visible_page_count"], 3)
+        self.assertEqual(details["recovered_page_count"], 10)
+        self.assertEqual(details["continuation_page_count"], 7)
+        with pikepdf.Pdf.open(BytesIO(recovered)) as document:
+            self.assertEqual(len(document.pages), 10)
+            self.assertEqual(document.Root.Pages.get("/Count"), 10)
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_network_pdf_recovery_requires_explicit_authorized_option(self):
+        import pikepdf
+
+        project = Path(__file__).resolve().parents[1]
+        url = (
+            f"http://127.0.0.1:{self.server.server_port}"
+            "/network-pdf-reader-incomplete"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "pdf",
+                    "--recover-detached-pdf",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[RÉCUPÉRÉ]", result.stdout)
+            artifact = Path(temp) / "document.pdf"
+            self.assertTrue(artifact.is_file())
+            with pikepdf.Pdf.open(artifact) as document:
+                self.assertEqual(len(document.pages), 10)
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["detected"], 10)
+            self.assertEqual(manifest["saved"], 10)
+            self.assertEqual(manifest["missing_count"], 0)
+            self.assertEqual(manifest["source_visible_page_count"], 3)
+            self.assertTrue(manifest["recovered_from_detached_tree"])
+            self.assertEqual(manifest["publication"]["status"], "complete")
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_interactive_original_mode_keeps_pdf_and_requests_recovery(self):
+        import pikepdf
+
+        project = Path(__file__).resolve().parents[1]
+        url = (
+            f"http://127.0.0.1:{self.server.server_port}"
+            "/network-pdf-reader-incomplete"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            from document_extractor.cli import parse_args
+
+            args = parse_args([url, "--output", temp])
+            args.interactive = True
+            args.output_format = "original"
+            with patch("builtins.input", return_value="oui") as prompt:
+                result = run(args)
+
+            self.assertEqual(result, 0)
+            prompt.assert_called_once()
+            artifact = Path(temp) / "document.pdf"
+            self.assertTrue(artifact.is_file())
+            with pikepdf.Pdf.open(artifact) as document:
+                self.assertEqual(len(document.pages), 10)
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["output_format"], "pdf")
+            self.assertTrue(manifest["recovered_from_detached_tree"])
+
+    def test_interactive_original_mode_selects_cbz_for_source_images(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/document"
+        with tempfile.TemporaryDirectory() as temp:
+            from document_extractor.cli import parse_args
+
+            args = parse_args([url, "--output", temp])
+            args.interactive = True
+            args.output_format = "original"
+            result = run(args)
+
+            self.assertEqual(result, 0)
+            self.assertTrue((Path(temp) / "document.cbz").is_file())
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["output_format"], "cbz")
+
+    def test_network_epub_is_preserved_as_the_original_document(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/network-epub-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "original",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("ressource EPUB chargée par le navigateur", result.stdout)
+            artifact = Path(temp) / "document.epub"
+            self.assertEqual(artifact.read_bytes(), NETWORK_EPUB)
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["output_format"], "epub")
+            self.assertEqual(manifest["resource_unit"], "epub_document")
+            self.assertEqual(manifest["epub_spine_items"], 2)
+
+    def test_incomplete_network_epub_is_reported_and_not_saved(self):
+        project = Path(__file__).resolve().parents[1]
+        url = (
+            f"http://127.0.0.1:{self.server.server_port}"
+            "/network-epub-reader-incomplete"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "original",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("[INCOMPLET] EPUB", result.stdout)
+            self.assertIn("1 document(s) de lecture", result.stdout)
+            self.assertFalse((Path(temp) / "document.epub").exists())
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["publication"]["status"], "incomplete")
+            self.assertEqual(manifest["missing_count"], 1)
+            self.assertEqual(
+                manifest["epub_diagnostics"]["missing_referenced_documents"],
+                ["OEBPS/three.xhtml"],
+            )
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_network_epub_can_be_converted_to_pdf_when_selected(self):
+        import pikepdf
+
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/network-epub-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "pdf",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=180,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            artifact = Path(temp) / "document.pdf"
+            with pikepdf.Pdf.open(artifact) as document:
+                self.assertGreaterEqual(len(document.pages), 2)
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["output_format"], "pdf")
+            self.assertEqual(manifest["resource_unit"], "epub_document")
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("pikepdf")
+        and importlib.util.find_spec("pypdfium2"),
+        "pikepdf/pypdfium2 absents",
+    )
+    def test_network_epub_can_be_rendered_as_images_without_work_files(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/network-epub-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "images",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=180,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            images = sorted((Path(temp) / "images").glob("page-*.png"))
+            self.assertGreaterEqual(len(images), 2)
+            self.assertFalse((Path(temp) / ".komaforge-work").exists())
+
+    def test_inspection_detects_a_work_without_downloading(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/work"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--inspect",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Chapitres détectés : 3", result.stdout)
+            self.assertIn("1. Chapitre 1", result.stdout)
+            self.assertEqual(list(Path(temp).iterdir()), [])
+
+    def test_work_download_creates_one_valid_archive_per_selected_chapter(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/work"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--chapters",
+                    "1-2",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            root = Path(temp)
+            manifest = json.loads(
+                (root / "publication.json").read_text(encoding="utf-8")
+            )
+            publication = manifest["publication"]
+            self.assertEqual(publication["type"], "work")
+            self.assertEqual(publication["chapter_count"], 3)
+            self.assertEqual(publication["selected_chapter_count"], 2)
+            self.assertEqual(publication["status"], "complete")
+            self.assertEqual(
+                [chapter["status"] for chapter in publication["chapters"]],
+                ["complete", "complete"],
+            )
+            archives = sorted((root / "chapters").glob("*.cbz"))
+            self.assertEqual(
+                [archive.name for archive in archives],
+                ["001-Chapitre-1.cbz", "002-Chapitre-2.cbz"],
+            )
+            for archive_path in archives:
+                with zipfile.ZipFile(archive_path) as archive:
+                    self.assertEqual(
+                        archive.namelist(),
+                        ["page-0001.png", "page-0002.png"],
+                    )
+            self.assertFalse((root / ".komaforge-work").exists())
+
+    def test_select_menu_creates_one_image_folder_per_selected_volume(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/select-work"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--chapters",
+                    "1-2",
+                    "--format",
+                    "images",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Volumes détectés : 3", result.stdout)
+            root = Path(temp)
+            manifest = json.loads(
+                (root / "publication.json").read_text(encoding="utf-8")
+            )
+            publication = manifest["publication"]
+            self.assertEqual(publication["type"], "collection")
+            self.assertEqual(publication["part_kind"], "volume")
+            self.assertEqual(publication["part_count"], 3)
+            self.assertEqual(publication["selected_part_count"], 2)
+            self.assertEqual(
+                [part["detected"] for part in publication["chapters"]],
+                [3, 2],
+            )
+            self.assertEqual(
+                [part["expected"] for part in publication["chapters"]],
+                [3, 2],
+            )
+            self.assertEqual(
+                [path.name for path in sorted((root / "volumes").iterdir())],
+                ["001-Volume-1", "002-Volume-2"],
+            )
+            self.assertEqual(
+                len(list((root / "volumes" / "001-Volume-1").glob("page-*.png"))),
+                3,
+            )
+            self.assertEqual(
+                len(list((root / "volumes" / "002-Volume-2").glob("page-*.png"))),
+                2,
+            )
+
+    def test_direct_chapter_url_does_not_expand_to_the_whole_work(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/series/demo/chapter-2"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            root = Path(temp)
+            self.assertTrue((root / "pages.json").is_file())
+            self.assertTrue((root / "document.cbz").is_file())
+            self.assertFalse((root / "publication.json").exists())
 
     def test_wrong_expected_count_stops_before_download(self):
         project = Path(__file__).resolve().parents[1]
@@ -181,8 +1107,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             self.assertFalse((Path(temp) / "pages.json").exists())
             self.assertFalse((Path(temp) / "images").exists())
             work_images = Path(temp) / ".komaforge-work" / "images"
-            self.assertTrue(work_images.is_dir())
-            self.assertEqual(list(work_images.iterdir()), [])
+            self.assertFalse(work_images.exists())
 
     def test_svgz_detection_and_targeted_watermark_removal(self):
         project = Path(__file__).resolve().parents[1]

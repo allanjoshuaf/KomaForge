@@ -16,9 +16,12 @@ from document_extractor.formats import (
     create_epub,
     create_pdf,
     find_chrome_executable,
+    inspect_epub,
+    render_pdf_bytes_to_images,
     create_selected_output,
     remove_validated_work_directory,
 )
+from tests.mock_site import INCOMPLETE_EPUB, NETWORK_EPUB, NETWORK_PDF
 
 
 PNG_1X1 = bytes.fromhex(
@@ -33,14 +36,29 @@ JPEG_MINIMAL = bytes.fromhex(
 )
 
 
-def make_rgb_png(width: int, height: int) -> bytes:
+def make_rgb_png(
+    width: int,
+    height: int,
+    pixels_per_meter: int | None = None,
+) -> bytes:
     def chunk(kind: bytes, payload: bytes) -> bytes:
         checksum = zlib.crc32(kind + payload) & 0xFFFFFFFF
         return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", checksum)
 
     rows = b"".join(b"\x00" + (b"\xff\xff\xff" * width) for _ in range(height))
     header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+    density = (
+        chunk(b"pHYs", struct.pack(">IIB", pixels_per_meter, pixels_per_meter, 1))
+        if pixels_per_meter
+        else b""
+    )
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + density
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
 
 
 class OutputFormatTests(unittest.TestCase):
@@ -76,8 +94,35 @@ class OutputFormatTests(unittest.TestCase):
                         archive.read(f"OEBPS/images/{page.name}"), page.read_bytes()
                     )
 
+    def test_epub_inspection_reads_the_real_spine_order(self):
+        info = inspect_epub(NETWORK_EPUB)
+        self.assertEqual(info["spine_item_count"], 2)
+        self.assertEqual(
+            info["spine_paths"],
+            ["OEBPS/one.xhtml", "OEBPS/two.xhtml"],
+        )
+        self.assertTrue(info["is_structurally_complete"])
+
+    def test_epub_inspection_finds_documents_named_but_absent(self):
+        info = inspect_epub(INCOMPLETE_EPUB)
+        self.assertFalse(info["is_structurally_complete"])
+        self.assertEqual(info["referenced_document_count"], 3)
+        self.assertEqual(
+            info["missing_referenced_documents"],
+            ["OEBPS/three.xhtml"],
+        )
+        self.assertEqual(info["orphan_local_entries"], [])
+        self.assertEqual(info["trailing_bytes_after_eocd"], 0)
+
+    @unittest.skipUnless(importlib.util.find_spec("pypdfium2"), "pypdfium2 absent")
+    def test_pdf_rasterization_produces_one_lossless_png_per_page(self):
+        with tempfile.TemporaryDirectory() as temp:
+            files = render_pdf_bytes_to_images(NETWORK_PDF, Path(temp), dpi=96)
+            self.assertEqual(len(files), 3)
+            self.assertTrue(all(path.read_bytes().startswith(b"\x89PNG") for path in files))
+
     @unittest.skipUnless(importlib.util.find_spec("img2pdf"), "img2pdf non installé")
-    def test_pdf_is_created_without_page_size_override(self):
+    def test_pdf_is_created_with_stable_pixel_based_page_size(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             page = root / "page-0001.png"
@@ -85,6 +130,36 @@ class OutputFormatTests(unittest.TestCase):
             output = create_pdf([page], root / "document.pdf")
             self.assertTrue(output.read_bytes().startswith(b"%PDF-"))
             self.assertGreater(output.stat().st_size, len(PNG_1X1))
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("img2pdf") and importlib.util.find_spec("pikepdf"),
+        "img2pdf/pikepdf absents",
+    )
+    def test_pdf_ignores_absurd_image_dpi_and_preserves_page_order(self):
+        import pikepdf
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            short = root / "page-0001.png"
+            tall = root / "page-0002.png"
+            short.write_bytes(make_rgb_png(690, 200, pixels_per_meter=10_000_000))
+            tall.write_bytes(make_rgb_png(900, 1500, pixels_per_meter=10_000_000))
+
+            output = create_pdf([short, tall], root / "document.pdf")
+
+            with pikepdf.Pdf.open(output) as pdf:
+                self.assertEqual(len(pdf.pages), 2)
+                sizes = [
+                    (
+                        float(page.MediaBox[2]) - float(page.MediaBox[0]),
+                        float(page.MediaBox[3]) - float(page.MediaBox[1]),
+                    )
+                    for page in pdf.pages
+                ]
+            self.assertAlmostEqual(sizes[0][0], 690 * 0.75, places=2)
+            self.assertAlmostEqual(sizes[0][1], 200 * 0.75, places=2)
+            self.assertAlmostEqual(sizes[1][0], 900 * 0.75, places=2)
+            self.assertAlmostEqual(sizes[1][1], 1500 * 0.75, places=2)
 
     @unittest.skipUnless(
         importlib.util.find_spec("img2pdf")
@@ -124,6 +199,19 @@ class OutputFormatTests(unittest.TestCase):
             result = create_selected_output("images", pages, root, "Test")
             self.assertEqual(result, root)
             self.assertEqual(hashlib.sha256(pages[0].read_bytes()).hexdigest(), hashlib.sha256(PNG_1X1).hexdigest())
+
+    def test_selected_output_accepts_a_safe_chapter_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pages = self.make_pages(root)
+            output = create_selected_output(
+                "cbz",
+                pages,
+                root,
+                "Chapitre 2",
+                output_stem="002-chapitre-2",
+            )
+            self.assertEqual(output.name, "002-chapitre-2.cbz")
 
     def test_cbr_never_creates_a_fake_rar_when_rar_is_missing(self):
         with tempfile.TemporaryDirectory() as temp:
