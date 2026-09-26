@@ -2,6 +2,35 @@
 
 Toutes les modifications notables de KomaForge sont consignées ici.
 
+## Non publié
+
+- nouveau menu terminal structuré, coloré lorsque le terminal le permet et
+  utilisable sans couleur ; interface disponible en français, anglais, russe
+  et chinois, y compris l'aide `--help` et les principaux diagnostics ;
+- courte intro animée du terminal : une mascotte originale traverse la forge et
+  allume le nom en moins de 200 ms ; image finale compacte en mode sans mouvement ;
+- nettoyage robuste des profils Chrome temporaires sous Windows afin d'éviter
+  l'accumulation de plusieurs gigaoctets dans `%TEMP%` ;
+- Manga UP : lecture du catalogue officiel rendu par le serveur pour distinguer
+  les sous-parties gratuites du catalogue complet. Une extraction publique est
+  désormais marquée `limited_by_source` au lieu d'être annoncée comme l'œuvre
+  complète, et les petites séries accessibles proposent `all` par défaut.
+
+- nommage automatique des dossiers et fichiers à partir du vrai titre de l'ouvrage ;
+- ajout du numéro de chapitre aux lecteurs dont l'URL représente un chapitre unique ;
+- protection contre l'écrasement silencieux d'un autre ouvrage portant le même chemin technique ;
+- reconnaissance d'une même source malgré le renouvellement de ses jetons temporaires ;
+- refus automatique des cookies non essentiels sur les bandeaux connus, dont Cookiebot ;
+- récupération des pages Calaméo depuis les ressources réellement chargées par Chrome ;
+- blocage des faux titres d'interstitiel comme `Just a moment` ;
+- découverte d'un lecteur eBooks uniquement depuis une action Preview/Read sample explicite ;
+- PDF SVG imprimé en une seule session Chrome au lieu d'un processus par page ;
+- conversion des SVG en PNG natifs pour rendre les CBZ et CBR compatibles avec les lecteurs courants.
+- rejet des CTA Anime-Planet et lecture du manifeste ordonné de son lecteur paginé ;
+- parcours des lecteurs virtualisés à URL `blob:`, avec conservation des octets WebP originaux ;
+- distinction entre les écrans doubles d'un lecteur et ses fichiers de pages réels ;
+- identification explicite du chapitre ouvert après un bouton `Start reading`.
+
 ## 0.4.0 - 2026-09-24
 
 - récupération du premier chargement SSL défaillant dans Chrome ;

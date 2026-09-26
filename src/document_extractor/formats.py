@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html
 import posixpath
+import re
 import shutil
 import struct
 import subprocess
@@ -10,6 +11,7 @@ import tempfile
 import time
 import zipfile
 from io import BytesIO
+from contextlib import contextmanager
 from pathlib import Path
 from pathlib import PurePosixPath
 from urllib.parse import unquote, urlparse
@@ -175,8 +177,8 @@ def _replace_atomic(partial: Path, final: Path) -> None:
     partial.replace(final)
 
 
-def create_cbz(files: list[Path], output_path: Path) -> Path:
-    """Crée un CBZ sans transformer les images, puis vérifie chaque octet."""
+def _write_cbz(files: list[Path], output_path: Path) -> Path:
+    """Écrit et vérifie un CBZ à partir de pages déjà compatibles."""
     partial = _atomic_target(output_path)
     partial.unlink(missing_ok=True)
     try:
@@ -197,6 +199,16 @@ def create_cbz(files: list[Path], output_path: Path) -> Path:
         raise
 
 
+def create_cbz(
+    files: list[Path],
+    output_path: Path,
+    chrome_executable: Path | None = None,
+) -> Path:
+    """Crée un CBZ lisible, en rendant les SVG en PNG à leur taille native."""
+    with _comic_archive_pages(files, chrome_executable) as compatible_files:
+        return _write_cbz(compatible_files, output_path)
+
+
 def find_rar_executable() -> Path | None:
     discovered = shutil.which("rar") or shutil.which("rar.exe")
     if discovered:
@@ -208,7 +220,11 @@ def find_rar_executable() -> Path | None:
     return next((path for path in candidates if path.is_file()), None)
 
 
-def create_cbr(files: list[Path], output_path: Path) -> Path:
+def create_cbr(
+    files: list[Path],
+    output_path: Path,
+    chrome_executable: Path | None = None,
+) -> Path:
     """Crée un vrai conteneur RAR/CBR en mode stockage et vérifie son extraction."""
     rar = find_rar_executable()
     if rar is None:
@@ -216,45 +232,50 @@ def create_cbr(files: list[Path], output_path: Path) -> Path:
             "Le format CBR demande l'outil `rar` (WinRAR). "
             "Installez WinRAR ou choisissez CBZ, qui ne demande aucun outil externe."
         )
-    partial = output_path.with_name(f"{output_path.stem}.part{output_path.suffix}")
-    partial.unlink(missing_ok=True)
-    try:
-        command = [
-            str(rar),
-            "a",
-            "-ep1",
-            "-m0",
-            "-idq",
-            "-y",
-            str(partial),
-            *(str(path) for path in files),
-        ]
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
-        if result.returncode != 0 or not partial.is_file():
-            details = (result.stderr or result.stdout).strip()
-            raise RuntimeError(f"Échec de création CBR : {details or result.returncode}")
-
-        with tempfile.TemporaryDirectory(prefix="komaforge-cbr-check-") as temp:
-            check_dir = Path(temp)
-            verify = subprocess.run(
-                [str(rar), "x", "-inul", "-o+", "-y", str(partial), str(check_dir) + "\\"],
-                capture_output=True,
-                check=False,
-            )
-            if verify.returncode != 0:
-                raise RuntimeError("Le CBR créé ne peut pas être relu.")
-            extracted = sorted(path for path in check_dir.iterdir() if path.is_file())
-            if [path.name for path in extracted] != sorted(path.name for path in files):
-                raise RuntimeError("Le contenu du CBR est incomplet.")
-            originals = {path.name: file_sha256(path) for path in files}
-            for path in extracted:
-                if file_sha256(path) != originals[path.name]:
-                    raise RuntimeError(f"Le CBR a altéré {path.name}.")
-        _replace_atomic(partial, output_path)
-        return output_path
-    except Exception:
+    with _comic_archive_pages(files, chrome_executable) as compatible_files:
+        partial = output_path.with_name(f"{output_path.stem}.part{output_path.suffix}")
         partial.unlink(missing_ok=True)
-        raise
+        try:
+            command = [
+                str(rar),
+                "a",
+                "-ep1",
+                "-m0",
+                "-idq",
+                "-y",
+                str(partial),
+                *(str(path) for path in compatible_files),
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            if result.returncode != 0 or not partial.is_file():
+                details = (result.stderr or result.stdout).strip()
+                raise RuntimeError(f"Échec de création CBR : {details or result.returncode}")
+
+            with tempfile.TemporaryDirectory(prefix="komaforge-cbr-check-") as temp:
+                check_dir = Path(temp)
+                verify = subprocess.run(
+                    [str(rar), "x", "-inul", "-o+", "-y", str(partial), str(check_dir) + "\\"],
+                    capture_output=True,
+                    check=False,
+                )
+                if verify.returncode != 0:
+                    raise RuntimeError("Le CBR créé ne peut pas être relu.")
+                extracted = sorted(path for path in check_dir.iterdir() if path.is_file())
+                if [path.name for path in extracted] != sorted(
+                    path.name for path in compatible_files
+                ):
+                    raise RuntimeError("Le contenu du CBR est incomplet.")
+                originals = {
+                    path.name: file_sha256(path) for path in compatible_files
+                }
+                for path in extracted:
+                    if file_sha256(path) != originals[path.name]:
+                        raise RuntimeError(f"Le CBR a altéré {path.name}.")
+            _replace_atomic(partial, output_path)
+            return output_path
+        except Exception:
+            partial.unlink(missing_ok=True)
+            raise
 
 
 def _bitmap_pdf_bytes(files: list[Path], img2pdf) -> bytes:
@@ -347,6 +368,136 @@ def _render_svg_pdf_with_chrome(
         )
 
 
+def _svg_viewbox_size(source: Path) -> tuple[int, int]:
+    with source.open("r", encoding="utf-8", errors="replace") as stream:
+        header = stream.read(16_384)
+    viewbox = re.search(
+        r"\bviewBox\s*=\s*['\"]\s*[-+\d.eE]+\s+[-+\d.eE]+\s+"
+        r"([-+\d.eE]+)\s+([-+\d.eE]+)\s*['\"]",
+        header,
+        re.IGNORECASE,
+    )
+    if viewbox:
+        width = round(float(viewbox.group(1)))
+        height = round(float(viewbox.group(2)))
+    else:
+        width_match = re.search(r"\bwidth\s*=\s*['\"]([\d.]+)", header, re.IGNORECASE)
+        height_match = re.search(r"\bheight\s*=\s*['\"]([\d.]+)", header, re.IGNORECASE)
+        if not width_match or not height_match:
+            raise RuntimeError(f"Dimensions SVG introuvables : {source.name}")
+        width = round(float(width_match.group(1)))
+        height = round(float(height_match.group(1)))
+    if not (16 <= width <= 16_384 and 16 <= height <= 16_384):
+        raise RuntimeError(
+            f"Dimensions SVG non raisonnables pour {source.name} : {width}x{height}"
+        )
+    return width, height
+
+
+def _render_svg_batch_pdf_with_chrome(
+    chrome: Path,
+    files: list[Path],
+    output_pdf: Path,
+    temp_dir: Path,
+) -> tuple[int, int]:
+    """Imprime toutes les pages SVG en une seule session Chrome."""
+    if not files or any(path.suffix.lower() != ".svg" for path in files):
+        raise ValueError("Le rendu groupé demande uniquement des pages SVG.")
+    width, height = _svg_viewbox_size(files[0])
+    page_height_in = 12.0
+    page_width_in = page_height_in * width / height
+    tags = "".join(
+        "<section><img src=\""
+        + html.escape(path.resolve().as_uri(), quote=True)
+        + "\"></section>"
+        for path in files
+    )
+    document = temp_dir / "svg-pages.html"
+    document.write_text(
+        "<!doctype html><meta charset=\"utf-8\"><style>"
+        f"@page{{size:{page_width_in:.6f}in {page_height_in:.6f}in;margin:0}}"
+        "*{box-sizing:border-box}html,body{margin:0;padding:0;background:white}"
+        f"section{{width:{page_width_in:.6f}in;height:{page_height_in:.6f}in;"
+        "break-after:page;display:flex;background:white;overflow:hidden}"
+        "section:last-child{break-after:auto}"
+        "img{width:100%;height:100%;object-fit:contain;display:block}"
+        "</style>"
+        + tags,
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            str(chrome),
+            "--headless=new",
+            "--disable-gpu",
+            "--disable-background-networking",
+            "--allow-file-access-from-files",
+            "--no-pdf-header-footer",
+            "--no-first-run",
+            f"--user-data-dir={temp_dir / 'chrome-profile'}",
+            f"--print-to-pdf={output_pdf}",
+            document.resolve().as_uri(),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=180,
+    )
+    if (
+        result.returncode != 0
+        or not output_pdf.is_file()
+        or output_pdf.stat().st_size == 0
+        or output_pdf.read_bytes()[:5] != b"%PDF-"
+    ):
+        details = (result.stderr or result.stdout).strip()
+        raise RuntimeError(
+            "Échec du rendu groupé des SVG avec Chrome : "
+            f"{details or result.returncode}"
+        )
+    return width, height
+
+
+@contextmanager
+def _comic_archive_pages(
+    files: list[Path],
+    chrome_executable: Path | None,
+):
+    """Fournit des pages raster compatibles avec les lecteurs CBZ/CBR."""
+    svg_files = [path for path in files if path.suffix.lower() == ".svg"]
+    if not svg_files:
+        yield files
+        return
+    if len(svg_files) != len(files):
+        raise RuntimeError(
+            "Une archive mélange des pages SVG et bitmap. Choisissez Images ou "
+            "PDF pour préserver cet ensemble hétérogène."
+        )
+    chrome = chrome_executable or find_chrome_executable()
+    if chrome is None or not chrome.is_file():
+        raise RuntimeError(
+            "Les pages SVG demandent Google Chrome pour produire un CBZ/CBR lisible."
+        )
+    with tempfile.TemporaryDirectory(prefix="komaforge-comic-pages-") as temp:
+        root = Path(temp)
+        vector_pdf = root / "pages.pdf"
+        width, height = _render_svg_batch_pdf_with_chrome(
+            chrome,
+            files,
+            vector_pdf,
+            root,
+        )
+        rendered = render_pdf_bytes_to_images(
+            vector_pdf.read_bytes(),
+            root / "images",
+            target_size=(width, height),
+        )
+        if len(rendered) != len(files):
+            raise RuntimeError(
+                f"Rendu CBZ/CBR incomplet : {len(rendered)}/{len(files)} pages."
+            )
+        yield rendered
+
+
 def create_pdf_from_epub_bytes(
     data: bytes,
     output_path: Path,
@@ -410,6 +561,7 @@ def render_pdf_bytes_to_images(
     data: bytes,
     output_dir: Path,
     dpi: int = 200,
+    target_size: tuple[int, int] | None = None,
 ) -> list[Path]:
     """Rasterise toutes les pages d'un PDF en PNG sans perte supplémentaire."""
     try:
@@ -430,10 +582,22 @@ def render_pdf_bytes_to_images(
             page = document[index]
             bitmap = None
             try:
-                bitmap = page.render(scale=dpi / 72)
+                if target_size:
+                    page_width, page_height = page.get_size()
+                    scale = min(
+                        target_size[0] / page_width,
+                        target_size[1] / page_height,
+                    )
+                else:
+                    scale = dpi / 72
+                bitmap = page.render(scale=scale)
                 image = bitmap.to_pil()
+                if target_size and image.size != target_size:
+                    from PIL import Image
+
+                    image = image.resize(target_size, Image.Resampling.LANCZOS)
                 output = output_dir / f"page-{index + 1:04d}.png"
-                image.save(output, format="PNG", optimize=False)
+                image.save(output, format="PNG", optimize=False, compress_level=3)
                 if output.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
                     raise RuntimeError(f"Rendu PNG invalide : {output.name}")
                 files.append(output)
@@ -472,6 +636,21 @@ def _create_mixed_pdf(
     try:
         with tempfile.TemporaryDirectory(prefix="komaforge-pdf-pages-") as temp:
             temp_dir = Path(temp)
+            if all(source.suffix.lower() == ".svg" for source in files):
+                _render_svg_batch_pdf_with_chrome(
+                    chrome,
+                    files,
+                    partial,
+                    temp_dir,
+                )
+                with pikepdf.Pdf.open(partial) as verification:
+                    if len(verification.pages) != len(files):
+                        raise RuntimeError(
+                            "Le PDF groupé ne contient pas toutes les pages."
+                        )
+                _replace_atomic(partial, output_path)
+                return output_path
+
             page_pdfs: list[Path] = []
             for index, source in enumerate(files, start=1):
                 page_pdf = temp_dir / f"page-{index:04d}.pdf"
@@ -639,9 +818,9 @@ def create_selected_output(
         raise ValueError("Nom de sortie invalide.")
     output_path = output_dir / f"{output_stem}.{output_format}"
     if output_format == "cbz":
-        return create_cbz(files, output_path)
+        return create_cbz(files, output_path, chrome_executable)
     if output_format == "cbr":
-        return create_cbr(files, output_path)
+        return create_cbr(files, output_path, chrome_executable)
     if output_format == "pdf":
         return create_pdf(files, output_path, chrome_executable)
     if output_format == "epub":

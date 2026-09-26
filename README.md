@@ -12,6 +12,7 @@ site.
 ## Ce que l'outil automatise
 
 - menu guidé si aucune URL n'est fournie ;
+- interface guidée en français, anglais, russe et chinois ;
 - distinction automatique entre une œuvre, un chapitre et un document paginé ;
 - découverte prudente des chapitres d'une œuvre et création d'un fichier par chapitre ;
 - reconnaissance des menus cohérents de volumes, tomes ou chapitres ;
@@ -32,7 +33,9 @@ site.
 - manifeste final `pages.json` avec le sélecteur et le nombre de pages validés ;
 - reprise d'une extraction déjà commencée ;
 - sortie unique choisie par l'utilisateur ;
-- CBZ et EPUB construits avec les images originales, sans recompression ;
+- CBZ construit avec les images originales lorsqu'elles sont déjà compatibles ;
+- pages SVG rendues en PNG à leur taille native pour les lecteurs CBZ/CBR ;
+- EPUB construit avec les ressources originales, y compris les SVG ;
 - PDF créé sans redimensionnement volontaire ;
 - CBR véritable lorsque l'outil `rar` est installé ;
 - validation du fichier final avant suppression des fichiers de travail ;
@@ -46,6 +49,12 @@ KomaForge ne convertit pas une image JPEG en PNG ou inversement pour le simple
 plaisir d'uniformiser les pages. Chaque ressource conserve son format, sa résolution
 et son hash SHA-256. Les archives CBZ et EPUB sont relues après création et chaque
 image embarquée est comparée à l'original téléchargé.
+
+Une exception volontaire concerne les pages SVG dans un CBZ ou un CBR : beaucoup
+de lecteurs de bandes dessinées refusent ce format dans une archive pourtant valide.
+KomaForge les rend donc en PNG sans compression destructive, exactement aux
+dimensions de leur `viewBox` (par exemple `1200 x 1600`), puis vérifie toutes les
+pages. Les formats Images et EPUB continuent de conserver les SVG eux-mêmes.
 
 Lorsque les pages sont des images, le PDF est produit avec `img2pdf`, qui les
 encapsule sans leur imposer une taille de papier ni un redimensionnement. Lorsqu'un
@@ -86,9 +95,9 @@ options `pdf` et `conversion`. Pour créer un CBR, installez
 [WinRAR](https://www.rarlab.com/download.htm), qui fournit l'outil `rar`. CBZ ne
 demande aucun logiciel supplémentaire.
 
-Les documents SVG exportés en PDF sont rendus avec Google Chrome, comme dans le
-lecteur web. Inkscape n'est pas utilisé, car son moteur peut déplacer les textes et
-les polices intégrées de certaines publications.
+Les documents SVG exportés en PDF sont rendus avec une seule session Google Chrome
+pour tout l'ouvrage, comme dans le lecteur web. Inkscape n'est pas utilisé, car son
+moteur peut déplacer les textes et les polices intégrées de certaines publications.
 
 ## Installation sous Windows
 
@@ -113,6 +122,9 @@ komaforge
 ```
 
 Choisissez **Extraction automatique**, collez l'URL, puis choisissez le format.
+Le premier écran permet de choisir **Français**, **English**, **Русский** ou
+**中文**. Pour une commande directe, utilisez par exemple `--language en`,
+`--language ru` ou `--language zh`.
 Le choix recommandé **Original** conserve un PDF en PDF, un EPUB en EPUB et regroupe
 des pages image en CBZ. Les mêmes formats restent disponibles sans entrer dans les
 options avancées; celles-ci servent aux sélecteurs, compteurs et réglages du lecteur.
@@ -123,16 +135,22 @@ Sous Windows, les résultats sont créés à la racine du disque système :
 
 ```text
 C:\Extractions\Manga\
-└── exemple.com-nom-du-document\
+└── Titre-du-livre-Chapter-1\
     ├── pages.json
-    └── document.cbz
+    └── Titre-du-livre-Chapter-1.cbz
 ```
+
+Le titre fourni par le lecteur ou ses métadonnées est préféré aux identifiants
+techniques de l'URL. Si un dossier homonyme appartient déjà à une autre source,
+KomaForge crée automatiquement un suffixe (`-2`, `-3`, etc.) au lieu d'écraser
+l'ouvrage existant. Une relance de la même source peut en revanche reprendre son
+propre dossier.
 
 Avec l'URL d'une œuvre contenant plusieurs chapitres :
 
 ```text
 C:\Extractions\Manga\
-└── exemple.com-nom-de-loeuvre\
+└── Titre-de-loeuvre\
     ├── publication.json
     └── chapters\
         ├── 001-Chapitre-1.cbz
@@ -144,7 +162,7 @@ Lorsqu'un lecteur expose des volumes plutôt que des chapitres, ils restent nomm
 comme tels :
 
 ```text
-C:\Extractions\Manga\exemple.com-nom-de-loeuvre\
+C:\Extractions\Manga\Titre-de-loeuvre\
 ├── publication.json
 └── volumes\
     ├── 001-Volume-1.cbz
@@ -159,6 +177,9 @@ Le disque système est détecté automatiquement. Sur macOS et Linux, le dossier
 
 ```powershell
 komaforge "https://votre-site.com/document" --format cbz
+
+# Interface anglaise
+komaforge "https://votre-site.com/document" --inspect --language en
 ```
 
 Après l'installation, cette forme fonctionne aussi :
@@ -204,6 +225,12 @@ Une balise copiée depuis les outils de développement est également comprise :
 Le format CSS `img.ts-main-image` reste recommandé, car il est plus simple à citer
 correctement dans tous les terminaux.
 
+KomaForge réutilise par défaut un profil Chrome dédié dans le dossier de données
+local de l'utilisateur. Les validations et consentements déjà traités peuvent ainsi
+survivre à une relance sans toucher au profil Chrome personnel. `--profile-dir`
+permet de choisir un autre emplacement. Dans le menu, si une vérification reste
+visible, KomaForge demande de la terminer dans Chrome avant d'analyser le document.
+
 Options utiles :
 
 | Option | Rôle |
@@ -225,7 +252,7 @@ Options utiles :
 | `--expected 185` | Impose un nombre exact de pages |
 | `--selector "img.page"` | Impose le groupe d'images |
 | `--wait-for-user` | Attend une connexion manuelle dans le navigateur |
-| `--profile-dir DOSSIER` | Conserve une session dans un profil séparé |
+| `--profile-dir DOSSIER` | Remplace l'emplacement du profil KomaForge persistant |
 | `--allow-host cdn.exemple.com` | Autorise explicitement un CDN externe vérifié |
 | `--workers 6` | Télécharge de 1 à 12 images en parallèle (6 par défaut) |
 | `--pdf` | Ancien alias de `--format pdf` |

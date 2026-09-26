@@ -179,9 +179,52 @@ class OutputFormatTests(unittest.TestCase):
                 '<text x="100" y="200">Texte vectoriel</text></svg>',
                 encoding="utf-8",
             )
-            output = create_pdf([page], root / "document.pdf")
+            second = root / "page-0002.svg"
+            second.write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1600">'
+                '<rect width="1200" height="1600" fill="white"/>'
+                '<text x="100" y="300">Deuxième page</text></svg>',
+                encoding="utf-8",
+            )
+            output = create_pdf([page, second], root / "document.pdf")
             with pikepdf.Pdf.open(output) as pdf:
-                self.assertEqual(len(pdf.pages), 1)
+                self.assertEqual(len(pdf.pages), 2)
+                self.assertEqual([float(value) for value in pdf.pages[0].MediaBox], [0, 0, 648, 864])
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("pypdfium2") and find_chrome_executable(),
+        "Chrome/pypdfium2 indisponible",
+    )
+    def test_svg_cbz_contains_native_size_png_pages(self):
+        from PIL import Image
+        from io import BytesIO
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pages = []
+            for index, color in enumerate(("#ff0000", "#0000ff"), start=1):
+                page = root / f"page-{index:04d}.svg"
+                page.write_text(
+                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1600">'
+                    f'<rect width="1200" height="1600" fill="{color}"/>'
+                    f'<text x="100" y="200">Page {index}</text></svg>',
+                    encoding="utf-8",
+                )
+                pages.append(page)
+
+            output = create_cbz(pages, root / "document.cbz", find_chrome_executable())
+
+            with zipfile.ZipFile(output) as archive:
+                self.assertEqual(
+                    archive.namelist(),
+                    ["page-0001.png", "page-0002.png"],
+                )
+                self.assertIsNone(archive.testzip())
+                for name in archive.namelist():
+                    data = archive.read(name)
+                    self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
+                    with Image.open(BytesIO(data)) as image:
+                        self.assertEqual(image.size, (1200, 1600))
 
     def test_no_inkscape_dependency_remains(self):
         source = (

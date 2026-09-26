@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import json
 import re
 import zipfile
 from http.server import BaseHTTPRequestHandler
@@ -528,6 +529,119 @@ window.setTimeout(() => {
             self.wfile.write(body)
             return
 
+        if self.path == "/api/manga/chapter/mock-work/1":
+            body = json.dumps(
+                {
+                    "status": "ok",
+                    "data": {
+                        "images": [
+                            "/paginated/page-1.png",
+                            "/paginated/page-2.png",
+                            "/paginated/page-3.png",
+                            "/paginated/page-4.png",
+                        ]
+                    },
+                }
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/paginated-image-reader":
+            body = b"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Chapitre pagine</title></head>
+<body>
+  <aside class="apapp square"><img src="/inc/img/cta/square_4.png" width="600" height="500"></aside>
+  <aside class="apapp square"><img src="/inc/img/cta/square_7.png" width="600" height="500"></aside>
+  <main class="ChapterReader" data-mangaslug="mock-work" data-chapter="1">
+    <button class="ChapterReader--prevButton">PREVIOUS</button>
+    <section class="ChapterReader--readerArea">
+      <img src="/paginated/page-1.png" width="900" height="1350">
+    </section>
+    <button class="ChapterReader--nextButton">NEXT</button>
+  </main>
+  <script>
+    const pages = [1, 2, 3, 4];
+    let position = 0;
+    const image = document.querySelector('.ChapterReader--readerArea img');
+    document.querySelector('.ChapterReader--nextButton').addEventListener('click', () => {
+      if (position + 1 >= pages.length) return;
+      position += 1;
+      image.src = `/paginated/page-${pages[position]}.png`;
+    });
+    document.querySelector('.ChapterReader--prevButton').addEventListener('click', () => {
+      if (position === 0) return;
+      position -= 1;
+      image.src = `/paginated/page-${pages[position]}.png`;
+    });
+  </script>
+</body></html>"""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/cta-only-reader":
+            body = b"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Interface sans pages</title></head>
+<body>
+  <main>
+    <div class="apapp square"><img src="/inc/img/cta/square_4.png" width="600" height="500"></div>
+    <div class="apapp square"><img src="/inc/img/cta/square_7.png" width="600" height="500"></div>
+  </main>
+</body></html>"""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if self.path == "/virtual-blob-reader":
+            body = b"""<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Virtual Blob Book | Mock Reader</title></head>
+<body>
+  <div class="page-counter">1/3</div>
+  <main id="viewer"></main>
+  <script>
+    const encoded = 'UklGRh4AAABXRUJQVlA4TBEAAAAvB8ABAAfQ//73v/+BiOh/AAA=';
+    const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+    const spreads = [[0, 1, 2], [2, 3, 4], [4, 5, 6]];
+    let current = 0;
+    function render() {
+      document.querySelector('.page-counter').textContent = `${current + 1}/3`;
+      const viewer = document.querySelector('#viewer');
+      viewer.replaceChildren();
+      for (const index of spreads[current]) {
+        const image = document.createElement('img');
+        image.alt = `page_${index}`;
+        image.width = 900;
+        image.height = 1350;
+        image.src = URL.createObjectURL(new Blob([bytes], {type: 'text/plain'}));
+        viewer.append(image);
+      }
+    }
+    addEventListener('keydown', event => {
+      if (event.key === 'ArrowLeft' && current + 1 < spreads.length) {
+        current += 1;
+        render();
+      }
+    });
+    render();
+  </script>
+</body></html>"""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if self.path == "/document":
             body = b"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><title>Lecteur test</title></head>
@@ -604,7 +718,15 @@ window.setTimeout(() => {
             self.wfile.write(body)
             return
 
-        if self.path.startswith(("/images/page-", "/assets/logo-", "/volumes/")):
+        if self.path.startswith(
+            (
+                "/images/page-",
+                "/assets/logo-",
+                "/volumes/",
+                "/paginated/page-",
+                "/inc/img/cta/",
+            )
+        ):
             self.send_response(200)
             self.send_header("Content-Type", "image/png")
             self.send_header("Content-Length", str(len(PNG)))

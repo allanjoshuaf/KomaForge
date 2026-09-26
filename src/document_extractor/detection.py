@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 import re
 import time
 from collections import Counter, defaultdict
@@ -10,6 +12,37 @@ from urllib.parse import urljoin, urlparse, urlunparse
 
 
 PAGE_TIMEOUT_MS = 90_000
+
+BLOB_CAPTURE_INIT_SCRIPT = r"""
+(() => {
+    if (window.__komaforgeBlobStore) return;
+    const create = URL.createObjectURL.bind(URL);
+    const revoke = URL.revokeObjectURL.bind(URL);
+    const blobs = new Map();
+    const pages = new Map();
+    let retainedBytes = 0;
+    Object.defineProperty(window, '__komaforgeBlobStore', {value: blobs});
+    Object.defineProperty(window, '__komaforgePageBlobStore', {value: pages});
+    URL.createObjectURL = value => {
+        const url = create(value);
+        if (value instanceof Blob && value.size > 0 &&
+            value.size <= 64 * 1024 * 1024 && blobs.size < 2000 &&
+            retainedBytes + value.size <= 256 * 1024 * 1024) {
+            blobs.set(url, value);
+            retainedBytes += value.size;
+        }
+        return url;
+    };
+    URL.revokeObjectURL = url => revoke(url);
+})();
+"""
+
+INTERSTITIAL_PATTERN = re.compile(
+    r"(?:just a moment|checking your browser|verify you are human|"
+    r"performing security verification|attention required[^\n]*cloudflare|"
+    r"un instant|v[ée]rifions que vous [êe]tes humain)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +58,15 @@ class ChapterLink:
     number: str
     title: str
     url: str
+
+
+@dataclass(frozen=True)
+class StructuredChapterCatalog:
+    chapters: tuple[ChapterLink, ...]
+    total_count: int
+    accessible_count: int
+    access_limited: bool
+    source: str
 
 
 @dataclass(frozen=True)
@@ -157,6 +199,115 @@ def discover_chapters(
         """
     )
     return normalize_chapter_candidates(candidates, source_url, minimum)
+
+
+def normalize_manga_up_catalog(
+    payload: dict,
+    source_url: str,
+) -> StructuredChapterCatalog | None:
+    """Normalise le catalogue SSR sans confondre une partie avec l'oeuvre.
+
+    Manga UP découpe souvent un chapitre papier en plusieurs lecteurs distincts.
+    Les lecteurs gratuits sont signalés par ``consumptionType == 3`` dans les
+    données Next.js rendues par le serveur. Les entrées payantes restent utiles
+    pour annoncer honnêtement l'étendue du catalogue, mais elles ne sont jamais
+    ajoutées à la file d'extraction d'une session publique.
+    """
+    parsed = urlparse(source_url)
+    if (parsed.hostname or "").lower() != "global.manga-up.com":
+        return None
+    base_match = re.match(r"^(?P<base>(?:/[a-z]{2})?/manga/[0-9]+)/*$", parsed.path)
+    if base_match is None:
+        return None
+
+    try:
+        data = payload["props"]["pageProps"]["data"]
+        raw_chapters = data["chapters"]
+    except (KeyError, TypeError):
+        return None
+    if not isinstance(raw_chapters, list):
+        return None
+
+    catalog_entries: list[tuple[tuple[int, int], ChapterLink]] = []
+    valid_total = 0
+    base_url = urlunparse(
+        (parsed.scheme, parsed.netloc, base_match.group("base"), "", "", "")
+    )
+    name_pattern = re.compile(
+        r"^\s*(?:chapter|chapitre)\s*([0-9]+)(?:\s*-\s*([0-9]+))?\s*$",
+        re.IGNORECASE,
+    )
+    for raw in raw_chapters:
+        if not isinstance(raw, dict):
+            continue
+        name = " ".join(str(raw.get("mainName") or "").split())
+        match = name_pattern.match(name)
+        try:
+            chapter_id = int(raw.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if not name or chapter_id <= 0:
+            continue
+        valid_total += 1
+        if match is None:
+            continue
+        if raw.get("consumptionType") != 3 or raw.get("price") not in (None, 0):
+            continue
+
+        main_number = int(match.group(1))
+        sub_number = int(match.group(2) or 0)
+        number = str(main_number)
+        if match.group(2) is not None:
+            number += f" -{sub_number}"
+        subtitle = " ".join(str(raw.get("subName") or "").split())
+        title = name if not subtitle else f"{name} — {subtitle}"
+        catalog_entries.append(
+            (
+                (main_number, sub_number),
+                ChapterLink(
+                    index=0,
+                    number=number,
+                    title=title,
+                    url=f"{base_url}/{chapter_id}",
+                ),
+            )
+        )
+
+    if not catalog_entries:
+        return None
+    catalog_entries.sort(key=lambda item: item[0])
+    chapters = tuple(
+        ChapterLink(
+            index=index,
+            number=chapter.number,
+            title=chapter.title,
+            url=chapter.url,
+        )
+        for index, (_order, chapter) in enumerate(catalog_entries, start=1)
+    )
+    return StructuredChapterCatalog(
+        chapters=chapters,
+        total_count=valid_total,
+        accessible_count=len(chapters),
+        access_limited=valid_total > len(chapters),
+        source="catalogue Next.js de Manga UP",
+    )
+
+
+def discover_manga_up_catalog(
+    page,
+    source_url: str,
+) -> StructuredChapterCatalog | None:
+    script = page.locator("script#__NEXT_DATA__")
+    if script.count() == 0:
+        return None
+    try:
+        payload = json.loads(script.first.text_content(timeout=5_000) or "")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return normalize_manga_up_catalog(payload, source_url)
 
 
 def _part_kind(label: str) -> str:
@@ -379,6 +530,259 @@ def pages_from_manifest(page) -> list[dict]:
             "Le manifeste JSON intégré est invalide : " + raw_manifest["__error"]
         )
     return normalize_manifest(raw_manifest, page.url) if raw_manifest else []
+
+
+def dismiss_cookie_consent(page) -> dict | None:
+    """Ferme les bandeaux connus en refusant les cookies non essentiels."""
+    selectors = (
+        "#CybotCookiebotDialogBodyButtonDecline",
+        "#onetrust-reject-all-handler",
+        "#didomi-notice-disagree-button",
+        '[data-testid="uc-deny-all-button"]',
+    )
+    host = (urlparse(page.url).hostname or "").casefold()
+    wait_for_late_banner = host.endswith("calameo.com")
+    if not wait_for_late_banner:
+        try:
+            wait_for_late_banner = bool(
+                page.locator(
+                    'script[src*="cookiebot" i], script[src*="onetrust" i], '
+                    'script[src*="didomi" i], script[src*="usercentrics" i]'
+                ).count()
+            )
+        except Exception:
+            pass
+
+    deadline = time.monotonic() + (15 if wait_for_late_banner else 0)
+    while True:
+        for selector in selectors:
+            control = page.locator(selector).first
+            try:
+                if control.count() == 0 or not control.is_visible(timeout=500):
+                    continue
+                label = " ".join(
+                    (control.inner_text(timeout=1_000) or "").split()
+                )
+                try:
+                    control.click(timeout=10_000)
+                except Exception:
+                    control.evaluate("node => node.click()")
+                try:
+                    control.wait_for(state="hidden", timeout=10_000)
+                except Exception:
+                    pass
+                return {
+                    "action": (
+                        "refus des cookies non essentiels -> "
+                        f"{label or selector}"
+                    ),
+                    "source": "bandeau de consentement",
+                }
+            except Exception:
+                continue
+        if time.monotonic() >= deadline:
+            break
+        page.wait_for_timeout(250)
+    return None
+
+
+def access_interstitial_state(page) -> dict:
+    data = page.evaluate(
+        """
+        () => ({
+            title: document.title || '',
+            body: (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 3000)
+        })
+        """
+    )
+    text = f"{data.get('title', '')} {data.get('body', '')}"
+    return {
+        "active": bool(INTERSTITIAL_PATTERN.search(text)),
+        "title": " ".join(str(data.get("title") or "").split()),
+    }
+
+
+def wait_for_access_interstitial(page, timeout_ms: int = 45_000) -> dict:
+    """Attend la fin naturelle d'un écran de vérification sans le contourner."""
+
+    deadline = time.monotonic() + timeout_ms / 1000
+    while True:
+        try:
+            first = access_interstitial_state(page)
+            break
+        except Exception as exc:
+            message = str(exc).casefold()
+            if (
+                "execution context was destroyed" not in message
+                and "because of a navigation" not in message
+            ):
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            page.wait_for_timeout(250)
+    if not first["active"]:
+        return {**first, "encountered": False, "passed": True, "waited_ms": 0}
+
+    stable_since: float | None = None
+    current = first
+    while time.monotonic() < deadline:
+        page.wait_for_timeout(250)
+        try:
+            current = access_interstitial_state(page)
+        except Exception as exc:
+            message = str(exc).casefold()
+            if (
+                "execution context was destroyed" in message
+                or "because of a navigation" in message
+            ):
+                stable_since = None
+                continue
+            raise
+        if current["active"]:
+            stable_since = None
+            continue
+        if stable_since is None:
+            stable_since = time.monotonic()
+        elif time.monotonic() - stable_since >= 1.5:
+            return {
+                **current,
+                "encountered": True,
+                "passed": True,
+                "waited_ms": round((timeout_ms / 1000 - (deadline - time.monotonic())) * 1000),
+            }
+    return {
+        **current,
+        "encountered": True,
+        "passed": False,
+        "waited_ms": timeout_ms,
+    }
+
+
+def is_ebooks_product_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").casefold()
+    return host in {"ebooks.com", "www.ebooks.com"} and bool(
+        re.search(r"/(?:[a-z]{2}-[a-z]{2}/)?book/\d+(?:/|$)", parsed.path)
+    )
+
+
+def _ebooks_reader_url(value: object) -> str | None:
+    """Accepte uniquement une URL HTTPS du lecteur officiel eBooks.com."""
+    if not isinstance(value, str):
+        return None
+    parsed = urlparse(value.strip())
+    if (
+        parsed.scheme.casefold() != "https"
+        or (parsed.hostname or "").casefold() != "reader.ebooks.com"
+        or not parsed.path.startswith("/preview")
+    ):
+        return None
+    return value.strip()
+
+
+def discover_linked_reader(context, page) -> dict | None:
+    """Ouvre une prévisualisation explicitement proposée par une page produit."""
+    if not is_ebooks_product_url(page.url):
+        return None
+    candidate = page.evaluate(
+        r"""
+        () => {
+            const normal = value => String(value || '').normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                .replace(/\s+/g, ' ').trim();
+            const exact = /^(?:preview|tap to preview|read sample|look inside|read online|read now|apercu|lire un extrait|lire en ligne)$/;
+            const controls = [...document.querySelectorAll(
+                'a, button, [role="button"], img[alt], [aria-label]'
+            )];
+            for (const node of controls) {
+                const target = node.matches('a, button, [role="button"]')
+                    ? node
+                    : node.closest('a, button, [role="button"]');
+                if (!target) continue;
+                const rect = target.getBoundingClientRect();
+                const style = getComputedStyle(target);
+                if (rect.width <= 0 || rect.height <= 0 ||
+                    style.display === 'none' || style.visibility === 'hidden') continue;
+                const label = normal(
+                    target.getAttribute('aria-label') || node.getAttribute('alt') ||
+                    target.textContent || target.getAttribute('title')
+                );
+                if (!exact.test(label) && !/\bpreview\b/.test(label)) continue;
+                const href = target.href || target.getAttribute('data-href') ||
+                    target.getAttribute('data-url') || '';
+                const marker = `reader-entry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                target.setAttribute('data-komaforge-reader-entry', marker);
+                return {marker, label, href};
+            }
+            return null;
+        }
+        """
+    )
+    if not candidate:
+        return None
+
+    direct_url = _ebooks_reader_url(
+        urljoin(page.url, candidate.get("href") or "")
+    )
+    if direct_url:
+        return {"url": direct_url, "action": candidate["label"]}
+
+    launched_urls: list[str] = []
+
+    def remember_preview_launch(response) -> None:
+        try:
+            parsed = urlparse(response.url)
+            if (
+                (parsed.hostname or "").casefold()
+                != "reader-backend.ebooks.com"
+                or parsed.path.rstrip("/").casefold()
+                != "/api/reader-instance/preview-launch"
+                or not response.ok
+            ):
+                return
+            payload = response.json()
+            launched = _ebooks_reader_url(payload.get("previewUrl"))
+            if payload.get("ok") and launched:
+                launched_urls.append(launched)
+        except Exception:
+            return
+
+    page.on("response", remember_preview_launch)
+
+    control = page.locator(
+        f'[data-komaforge-reader-entry="{candidate["marker"]}"]'
+    ).first
+    try:
+        try:
+            control.click(timeout=10_000, no_wait_after=True)
+        except Exception:
+            control.evaluate("node => node.click()")
+
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if launched_urls:
+                return {"url": launched_urls[-1], "action": candidate["label"]}
+            candidates = [
+                active.url
+                for active in context.pages
+                if not active.is_closed()
+            ]
+            candidates.extend(frame.url for frame in page.frames)
+            for raw_url in candidates:
+                reader_url = _ebooks_reader_url(raw_url)
+                if reader_url:
+                    return {"url": reader_url, "action": candidate["label"]}
+            page.wait_for_timeout(250)
+    finally:
+        try:
+            page.remove_listener("response", remember_preview_launch)
+        except Exception:
+            pass
+    return {
+        "url": None,
+        "action": candidate["label"],
+        "error": "le bouton n'a fourni aucune URL de lecteur",
+    }
 
 
 def activate_reader_gate(page) -> dict | None:
@@ -956,9 +1360,13 @@ def collect_image_candidates(page, selector: str) -> list[dict]:
             const text = [image.id, image.className, image.alt, image.src,
                 image.parentElement?.id, image.parentElement?.className]
                 .join(' ').toLowerCase();
-            const decorative = /(logo|icon|avatar|emoji|banner|advert|sponsor|thumbnail|hero|favicon)/
-                .test([image.id, image.className, image.alt,
-                    image.getAttribute('role')].join(' ').toLowerCase());
+            const decorationText = [image.id, image.className, image.alt,
+                image.getAttribute('role'), image.parentElement?.id,
+                image.parentElement?.className].join(' ').toLowerCase();
+            const decorative = /(logo|icon|avatar|emoji|banner|advert|sponsor|thumbnail|hero|favicon|mascot|notification|recommend|chapter.?slider|call.?to.?action|(?:^|\W)cta(?:\W|$))/
+                .test(decorationText) ||
+                /\/inc\/img\/(?:cta|chapter-providers)\/|\/manga\/primary\/|\/mascot\.(?:png|webp|jpe?g)/i
+                .test(url || '');
             let score = 0;
             if (/(page|scan|reader|document|chapter|manga|comic)/.test(text)) score += 6;
             if (/(logo|icon|avatar|emoji|banner|advert|sponsor|thumbnail)/.test(text)) score -= 10;
@@ -990,6 +1398,332 @@ def collect_image_candidates(page, selector: str) -> list[dict]:
         })
         """
     )
+
+
+def collect_chapter_reader_manifest(page) -> list[dict]:
+    """Lit la liste ordonnée que le lecteur ``ChapterReader`` utilise déjà.
+
+    Ce lecteur n'affiche qu'une image à la fois. Son initialisation charge
+    cependant un manifeste JSON de chapitre : cette liste est plus complète
+    et plus rapide à vérifier qu'une succession de clics sur ``Suivant``.
+    """
+    raw_items = page.evaluate(
+        r"""
+        async () => {
+            const anchor = document.querySelector('.ChapterReader');
+            if (!anchor) return [];
+            const slug = anchor.dataset.mangaslug;
+            const chapter = anchor.dataset.chapter;
+            if (!slug || !chapter) return [];
+            const endpoint = `/api/manga/chapter/${encodeURIComponent(slug)}/${encodeURIComponent(chapter)}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15000);
+            try {
+                const response = await fetch(endpoint, {
+                    credentials: 'same-origin',
+                    headers: {'Accept': 'application/json'},
+                    signal: controller.signal,
+                });
+                if (!response.ok) return [];
+                const payload = await response.json();
+                if (payload?.status !== 'ok' || !Array.isArray(payload?.data?.images)) {
+                    return [];
+                }
+                return payload.data.images.map((item, index) => {
+                    const value = typeof item === 'string'
+                        ? item
+                        : item?.url || item?.src || item?.image ||
+                          item?.imageUrl || item?.file || item?.path || '';
+                    if (!value) return null;
+                    let url;
+                    try { url = new URL(value, document.baseURI).href; }
+                    catch (_) { return null; }
+                    if (!/^https?:$/i.test(new URL(url).protocol)) return null;
+                    return {
+                        url,
+                        position: index,
+                        dataIndex: index,
+                        width: Number(item?.width || 900),
+                        height: Number(item?.height || 1350),
+                        score: 30,
+                        decorative: false,
+                    };
+                }).filter(Boolean);
+            } catch (_) {
+                return [];
+            } finally {
+                clearTimeout(timeout);
+            }
+        }
+        """
+    )
+    if not isinstance(raw_items, list) or len(raw_items) < 2:
+        return []
+    selected = _deduplicate(raw_items)
+    # Un manifeste qui contient des doublons ou des entrées invalides n'est
+    # pas une preuve fiable du nombre total de pages.
+    if len(selected) != len(raw_items):
+        return []
+    return selected
+
+
+def collect_virtual_blob_reader_candidates(page) -> list[dict]:
+    """Parcourt un lecteur virtualisé et conserve ses WebP déjà décodés.
+
+    Le compteur du site représente des écrans (souvent doubles), pas le
+    nombre de fichiers. Le lecteur virtualise aussi le DOM et révoque les URL
+    ``blob:`` des pages éloignées. Le script d'initialisation garde une
+    référence aux Blob originaux afin de préserver exactement leurs octets.
+    """
+    selector = 'img[src^="blob:"][alt^="page_"]'
+    try:
+        if page.locator(selector).count() < 2 or not page.evaluate(
+            "window.__komaforgeBlobStore instanceof Map"
+        ):
+            return []
+    except Exception:
+        return []
+
+    snapshot_script = r"""
+    () => {
+        const blobs = window.__komaforgeBlobStore;
+        const pages = window.__komaforgePageBlobStore;
+        if (!(blobs instanceof Map) || !(pages instanceof Map)) return null;
+        const images = [...document.querySelectorAll(
+            'img[src^="blob:"][alt^="page_"]'
+        )];
+        let readyCount = 0;
+        for (const image of images) {
+            const match = (image.alt || '').match(/^page_(\d+)$/);
+            const blob = blobs.get(image.src);
+            if (match && blob instanceof Blob && image.naturalWidth > 0 &&
+                image.naturalHeight > 0) {
+                pages.set(Number(match[1]), blob);
+                readyCount += 1;
+            }
+        }
+        const counter = (document.body?.innerText || '').match(
+            /(?:^|\s)(\d+)\s*\/\s*(\d+)(?:\s|$)/
+        );
+        return {
+            current: counter ? Number(counter[1]) : null,
+            total: counter ? Number(counter[2]) : null,
+            pageCount: pages.size,
+            visibleCount: images.length,
+            readyCount,
+        };
+    }
+    """
+
+    def stable_snapshot() -> dict | None:
+        previous_count = -1
+        stable = 0
+        state = None
+        for _ in range(80):
+            state = page.evaluate(snapshot_script)
+            if not isinstance(state, dict):
+                return None
+            count = int(state.get("pageCount") or 0)
+            ready_count = int(state.get("readyCount") or 0)
+            visible_count = int(state.get("visibleCount") or 0)
+            all_ready = visible_count == 0 or ready_count == visible_count
+            if count == previous_count and all_ready:
+                stable += 1
+                if stable >= 3:
+                    return state
+            else:
+                stable = 0
+                previous_count = count
+            page.wait_for_timeout(250)
+        if state:
+            ready = int(state.get("readyCount") or 0)
+            visible = int(state.get("visibleCount") or 0)
+            if visible == 0 or ready == visible:
+                return state
+        return None
+
+    state = stable_snapshot()
+    if (
+        not state
+        or not isinstance(state.get("current"), int)
+        or not isinstance(state.get("total"), int)
+        or state["current"] < 1
+        or state["total"] < state["current"]
+    ):
+        return []
+
+    screen_total = state["total"]
+    while state["current"] < screen_total:
+        previous = state["current"]
+        progressed = False
+        for key in ("ArrowLeft", "ArrowRight"):
+            page.keyboard.press(key)
+            try:
+                page.wait_for_function(
+                    r"""
+                    previous => {
+                        const match = (document.body?.innerText || '').match(
+                            /(?:^|\s)(\d+)\s*\/\s*(\d+)(?:\s|$)/
+                        );
+                        return match && Number(match[1]) > previous;
+                    }
+                    """,
+                    arg=previous,
+                    timeout=8_000,
+                )
+                progressed = True
+                break
+            except Exception:
+                continue
+        if not progressed:
+            return []
+        state = stable_snapshot()
+        if not state or state.get("current", 0) <= previous:
+            return []
+
+    raw_items = page.evaluate(
+        r"""
+        async () => {
+            const pages = window.__komaforgePageBlobStore;
+            if (!(pages instanceof Map)) return [];
+            const encode = blob => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = () => reject(reader.error);
+                reader.onload = () => resolve(String(reader.result).split(',', 2)[1]);
+                reader.readAsDataURL(new Blob([blob], {type: 'image/webp'}));
+            });
+            return Promise.all([...pages.entries()]
+                .sort((left, right) => left[0] - right[0])
+                .map(async ([index, blob]) => ({
+                    index,
+                    size: blob.size,
+                    base64: await encode(blob),
+                })));
+        }
+        """
+    )
+    if not isinstance(raw_items, list) or len(raw_items) < 2:
+        return []
+
+    indices = [item.get("index") for item in raw_items]
+    if indices != list(range(len(raw_items))):
+        return []
+
+    selected: list[dict] = []
+    try:
+        for item in raw_items:
+            data = base64.b64decode(item["base64"], validate=True)
+            if (
+                len(data) != int(item["size"])
+                or not data.startswith(b"RIFF")
+                or data[8:12] != b"WEBP"
+            ):
+                return []
+            index = int(item["index"])
+            selected.append(
+                {
+                    "url": f"browser-blob://reader/page-{index + 1:04d}.webp",
+                    "position": index,
+                    "dataIndex": index,
+                    "width": 900,
+                    "height": 1350,
+                    "score": 30,
+                    "decorative": False,
+                    "_embedded_data": data,
+                    "_embedded_content_type": "image/webp",
+                }
+            )
+    except (KeyError, TypeError, ValueError):
+        return []
+
+    print(
+        "Lecteur virtualisé : "
+        f"{len(selected)} page(s) originale(s) sur {screen_total} écran(s)"
+    )
+    return selected
+
+
+def collect_paginated_reader_candidates(page) -> list[dict]:
+    """Parcourt un lecteur qui remplace une unique image avec Suivant.
+
+    Le couple de classes ``ChapterReader`` est volontairement exigé : cliquer
+    un bouton Suivant générique pourrait changer de chapitre, ouvrir une
+    recommandation ou quitter le document.
+    """
+    image_selector = ".ChapterReader--readerArea img"
+    next_selector = ".ChapterReader--nextButton:visible"
+    if (
+        page.locator(image_selector).count() != 1
+        or page.locator(next_selector).count() == 0
+    ):
+        return []
+
+    source_url = page.url
+    selected: list[dict] = []
+    seen: set[str] = set()
+    end_confirmed = False
+    for index in range(10_000):
+        current = collect_image_candidates(page, image_selector)
+        if len(current) != 1:
+            break
+        item = current[0]
+        resource_url = str(item.get("url") or "")
+        if (
+            not resource_url
+            or resource_url in seen
+            or item.get("decorative")
+            or item.get("score", 0) < 5
+            or item.get("width", 0) < 400
+            or item.get("height", 0) < 500
+        ):
+            break
+        item["position"] = index
+        selected.append(item)
+        seen.add(resource_url)
+
+        control = page.locator(next_selector).first
+        if control.count() == 0 or control.is_disabled():
+            end_confirmed = True
+            break
+        try:
+            control.click(timeout=10_000, no_wait_after=True)
+            page.wait_for_function(
+                """
+                previous => {
+                    const image = document.querySelector(
+                        '.ChapterReader--readerArea img'
+                    );
+                    return image && (image.currentSrc || image.src) !== previous;
+                }
+                """,
+                arg=resource_url,
+                timeout=20_000,
+            )
+        except Exception:
+            # Certains lecteurs laissent Suivant actif sur leur dernière page.
+            # Après un délai complet, une source et une URL de document toutes
+            # deux inchangées constituent notre confirmation de fin.
+            try:
+                current_url = page.locator(image_selector).get_attribute("src")
+            except Exception:
+                return []
+            if page.url != source_url or not current_url:
+                return []
+            current_url = urljoin(page.url, current_url)
+            if current_url == resource_url:
+                end_confirmed = True
+                break
+            continue
+        if page.url != source_url:
+            return []
+
+    # Sans fin confirmée, une panne ou un chargement lent ne doit jamais être
+    # présenté comme un chapitre complet.
+    if len(selected) < 2 or not end_confirmed:
+        return []
+    for index, item in enumerate(selected):
+        item["dataIndex"] = index
+    return selected
 
 
 def _deduplicate(items: list[dict]) -> list[dict]:
@@ -1087,6 +1821,15 @@ def discover_pages(
     if selector:
         selected = _deduplicate(collect_image_candidates(page, selector))
         source = selector
+    elif virtualized := collect_virtual_blob_reader_candidates(page):
+        selected = virtualized
+        source = "lecteur virtualisé à pages Blob"
+    elif manifest := collect_chapter_reader_manifest(page):
+        selected = manifest
+        source = "manifeste du lecteur ChapterReader"
+    elif paginated := collect_paginated_reader_candidates(page):
+        selected = _deduplicate(paginated)
+        source = "lecteur paginé ChapterReader"
     elif page.locator("img[data-document-page]").count():
         selected = _deduplicate(collect_image_candidates(page, "img[data-document-page]"))
         source = "img[data-document-page]"
@@ -1122,6 +1865,11 @@ def discover_pages(
             "page": position,
             "url": item["url"],
             "source": source,
+            **{
+                key: value
+                for key, value in item.items()
+                if key.startswith("_embedded_")
+            },
             **(
                 {"document_index": item["dataIndex"]}
                 if item.get("dataIndex") is not None
