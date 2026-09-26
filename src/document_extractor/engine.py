@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -18,17 +20,24 @@ from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 
 from .detection import (
+    BLOB_CAPTURE_INIT_SCRIPT,
     ExpectedCount,
+    access_interstitial_state,
     activate_reader_gate,
     activate_reading_mode,
     discover_chapters,
+    discover_linked_reader,
+    discover_manga_up_catalog,
     discover_selectable_parts,
     detect_expected_count,
+    dismiss_cookie_consent,
     discover_pages,
     hydrate_lazy_content,
+    is_ebooks_product_url,
     looks_like_chapter_url,
     normalize_selector_input,
     select_chapters,
+    wait_for_access_interstitial,
     wait_for_reader_readiness,
 )
 from .formats import (
@@ -39,10 +48,16 @@ from .formats import (
     remove_validated_work_directory,
     render_pdf_bytes_to_images,
 )
-from .paths import safe_slug
+from .paths import (
+    choose_title_output_dir,
+    ensure_output_dir_is_compatible,
+    publication_folder_title,
+    safe_slug,
+)
 from .providers import discover_provider
 from .resources import detect_resource, is_page_resource, resource_from_url_value
 from .svg_tools import inspect_svg, remove_exact_watermarks
+from .terminal_ui import rt
 
 
 PAGE_TIMEOUT_MS = 90_000
@@ -51,6 +66,32 @@ PDF_REQUEST_TIMEOUT_MS = 180_000
 PDF_RANGE_TIMEOUT_MS = 60_000
 PDF_RANGE_CHUNK_BYTES = 4 * 1024 * 1024
 PDF_BODY_REUSE_MAX_BYTES = 8 * 1024 * 1024
+
+
+def cleanup_temporary_profile(
+    temporary_profile: tempfile.TemporaryDirectory,
+    profile_dir: Path,
+    attempts: int = 8,
+) -> bool:
+    """Supprime un profil Chrome temporaire malgré les verrous Windows brefs."""
+    last_error: OSError | None = None
+    for attempt in range(attempts):
+        try:
+            temporary_profile.cleanup()
+            return not profile_dir.exists()
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.25 * (attempt + 1))
+    try:
+        shutil.rmtree(profile_dir)
+        return True
+    except OSError as exc:
+        last_error = exc
+    print(
+        "[TEMP] Profil Chrome non supprimé après fermeture : "
+        f"{profile_dir} ({last_error})"
+    )
+    return False
 
 
 @dataclass(frozen=True)
@@ -64,6 +105,20 @@ class ChapterTask:
     kind: str = "chapter"
     control_selector: str | None = None
     control_value: str | None = None
+
+
+def _complete_access_check(page, args) -> dict:
+    initial = access_interstitial_state(page)
+    if (
+        initial["active"]
+        and getattr(args, "interactive", False)
+        and not args.wait_for_user
+    ):
+        input(
+            "Vérification du site détectée dans Chrome. Terminez-la si le site "
+            "demande une action, puis appuyez sur Entrée..."
+        )
+    return wait_for_access_interstitial(page)
 
 
 def find_free_port() -> int:
@@ -91,7 +146,7 @@ def wait_for_chrome(port: int, timeout_seconds: int = 60) -> dict:
 
 def host_is_allowed(image_url: str, allowed_hosts: set[str]) -> bool:
     parsed = urlparse(image_url)
-    if parsed.scheme == "data":
+    if parsed.scheme in {"data", "browser-blob"}:
         return True
     hostname = (parsed.hostname or "").lower()
     return any(
@@ -323,8 +378,11 @@ def download_pages(
         for stale in images_dir.glob(f"page-{page_number:04d}.*"):
             if stale != filename and stale.name != partial.name:
                 stale.unlink(missing_ok=True)
+        public_item = {
+            key: value for key, value in item.items() if not key.startswith("_")
+        }
         result = {
-            **item,
+            **public_item,
             "file": filename.name,
             "status": "downloaded",
             "bytes": len(output_data),
@@ -342,7 +400,9 @@ def download_pages(
     for position, item in enumerate(pages, start=1):
         page_number = int(item.get("page") or position)
         image_url = item["url"]
-        if not host_is_allowed(image_url, allowed_hosts):
+        if not item.get("_embedded_data") and not host_is_allowed(
+            image_url, allowed_hosts
+        ):
             print(f"[BLOQUÉ] page {page_number}: domaine non autorisé")
             missing.append(page_number)
             continue
@@ -458,32 +518,43 @@ def download_pages(
         last_error: Exception | None = None
         for attempt in range(1, max(1, retries) + 1):
             try:
-                embedded = resource_from_url_value(image_url)
-                if embedded is not None:
-                    data, content_type = embedded
+                captured = item.get("_embedded_data")
+                if isinstance(captured, bytes):
+                    data = captured
+                    content_type = str(
+                        item.get("_embedded_content_type") or ""
+                    )
                 else:
-                    headers = {
-                        "Referer": source_url,
-                        "User-Agent": user_agent,
-                        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-                        "Accept-Encoding": "identity",
-                    }
-                    cookie = cookie_header(image_url)
-                    if cookie:
-                        headers["Cookie"] = cookie
-                    request = urllib.request.Request(image_url, headers=headers)
-                    with opener.open(request, timeout=REQUEST_TIMEOUT_MS / 1000) as response:
-                        final_url = response.geturl()
-                        if not host_is_allowed(final_url, allowed_hosts):
-                            raise RuntimeError("redirection vers un domaine non autorisé")
-                        content_length = int(response.headers.get("content-length", "0") or 0)
-                        if content_length > max_image_bytes:
-                            raise RuntimeError(
-                                "image trop grande "
-                                f"({content_length / 1024 / 1024:.1f} Mo)"
+                    embedded = resource_from_url_value(image_url)
+                    if embedded is not None:
+                        data, content_type = embedded
+                    else:
+                        headers = {
+                            "Referer": source_url,
+                            "User-Agent": user_agent,
+                            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                            "Accept-Encoding": "identity",
+                        }
+                        cookie = cookie_header(image_url)
+                        if cookie:
+                            headers["Cookie"] = cookie
+                        request = urllib.request.Request(image_url, headers=headers)
+                        with opener.open(request, timeout=REQUEST_TIMEOUT_MS / 1000) as response:
+                            final_url = response.geturl()
+                            if not host_is_allowed(final_url, allowed_hosts):
+                                raise RuntimeError(
+                                    "redirection vers un domaine non autorisé"
+                                )
+                            content_length = int(
+                                response.headers.get("content-length", "0") or 0
                             )
-                        data = response.read(max_image_bytes + 1)
-                        content_type = response.headers.get("content-type", "")
+                            if content_length > max_image_bytes:
+                                raise RuntimeError(
+                                    "image trop grande "
+                                    f"({content_length / 1024 / 1024:.1f} Mo)"
+                                )
+                            data = response.read(max_image_bytes + 1)
+                            content_type = response.headers.get("content-type", "")
                 return position, finalize(
                     item, page_number, image_url, data, content_type
                 )
@@ -601,16 +672,47 @@ def _chapter_stem(chapter: ChapterTask) -> str:
     return safe_slug(f"{chapter.index:03d}-{label}")
 
 
-def _part_label(kind: str, plural: bool = False) -> str:
-    labels = {
-        "volume": ("Volume", "Volumes"),
-        "book": ("Livre", "Livres"),
-        "issue": ("Numéro", "Numéros"),
-        "chapter": ("Chapitre", "Chapitres"),
-        "document": ("Document", "Documents"),
+def _part_label(kind: str, plural: bool = False, language: str = "fr") -> str:
+    labels_by_language = {
+        "fr": {"volume": ("Volume", "Volumes"), "book": ("Livre", "Livres"), "issue": ("Numéro", "Numéros"), "chapter": ("Chapitre", "Chapitres"), "document": ("Document", "Documents"), "part": ("Partie", "Parties")},
+        "en": {"volume": ("Volume", "Volumes"), "book": ("Book", "Books"), "issue": ("Issue", "Issues"), "chapter": ("Chapter", "Chapters"), "document": ("Document", "Documents"), "part": ("Part", "Parts")},
+        "ru": {"volume": ("Том", "Тома"), "book": ("Книга", "Книги"), "issue": ("Выпуск", "Выпуски"), "chapter": ("Глава", "Главы"), "document": ("Документ", "Документы"), "part": ("Часть", "Части")},
+        "zh": {"volume": ("卷", "卷"), "book": ("书籍", "书籍"), "issue": ("期", "期"), "chapter": ("章节", "章节"), "document": ("文档", "文档"), "part": ("部分", "部分")},
     }
-    singular, plural_label = labels.get(kind, ("Partie", "Parties"))
+    labels = labels_by_language.get(language, labels_by_language["fr"])
+    singular, plural_label = labels.get(kind, labels["part"])
     return plural_label if plural else singular
+
+
+def _localized_runtime_value(value: str, language: str) -> str:
+    translations = {
+        "motif d'URL répété": {
+            "en": "repeated URL pattern",
+            "ru": "повторяющийся шаблон URL",
+            "zh": "重复 URL 模式",
+        },
+        "séquence data-index continue": {
+            "en": "continuous data-index sequence",
+            "ru": "непрерывная последовательность data-index",
+            "zh": "连续 data-index 序列",
+        },
+        "manifeste public Calaméo": {
+            "en": "public Calaméo manifest",
+            "ru": "публичный манифест Calaméo",
+            "zh": "Calaméo 公共清单",
+        },
+        "aucun contrôle requis": {
+            "en": "no control required",
+            "ru": "дополнительное управление не требуется",
+            "zh": "无需额外控制",
+        },
+        "ressources internes du navigateur": {
+            "en": "internal browser resources",
+            "ru": "внутренние ресурсы браузера",
+            "zh": "浏览器内部资源",
+        },
+    }
+    return translations.get(value, {}).get(language, value)
 
 
 def _remember_browser_document(candidates: list[dict], response) -> None:
@@ -1153,7 +1255,11 @@ def _fetch_browser_pdf(context, candidate: dict) -> tuple[bytes, int, dict]:
     return data, page_count, diagnostics
 
 
-def _fetch_browser_epub(context, candidate: dict) -> tuple[bytes, dict]:
+def _fetch_browser_epub(
+    context,
+    candidate: dict,
+    language: str = "fr",
+) -> tuple[bytes, dict]:
     """Récupère et valide l'EPUB observé dans la session réelle du lecteur."""
     request = candidate["request"]
     data = b""
@@ -1167,7 +1273,7 @@ def _fetch_browser_epub(context, candidate: dict) -> tuple[bytes, dict]:
                 )
             data = observed_response.body()
             if data:
-                print("Ressource EPUB : réponse déjà chargée par le navigateur")
+                print(rt(language, "epub_loaded"))
         except Exception:
             data = b""
 
@@ -1231,15 +1337,25 @@ def resolve_part_selection(
     chapters: list[ChapterTask],
     expression: str,
     kind: str,
+    default_expression: str = "1",
+    language: str = "fr",
 ) -> list[ChapterTask]:
     if expression == "ask":
-        noun = _part_label(kind, plural=True).lower()
+        noun = _part_label(kind, plural=True, language=language).lower()
+        prompts = {
+            "fr": "Sélection des {noun} [1, all ou 1-3,5; défaut {default}] : ",
+            "en": "Select {noun} [1, all, or 1-3,5; default {default}]: ",
+            "ru": "Выберите {noun} [1, all или 1-3,5; по умолчанию {default}]: ",
+            "zh": "选择{noun} [1、all 或 1-3,5；默认 {default}]：",
+        }
         expression = (
             input(
-                f"Sélection des {noun} "
-                "[1, all ou 1-3,5; défaut 1] : "
+                prompts.get(language, prompts["fr"]).format(
+                    noun=noun,
+                    default=default_expression,
+                )
             ).strip()
-            or "1"
+            or default_expression
         )
     return select_chapters(chapters, expression)
 
@@ -1308,6 +1424,7 @@ def _use_direct_pdf(
     metadata_candidates: list[dict],
     page,
 ) -> tuple[dict, bool]:
+    language = getattr(args, "language", "fr")
     selected_output_format = (
         "pdf" if args.output_format in {"auto", "original"} else args.output_format
     )
@@ -1442,7 +1559,7 @@ def _use_direct_pdf(
         output_stem = _chapter_stem(chapter)
     else:
         artifact_dir = output_dir
-        output_stem = "document"
+        output_stem = getattr(args, "output_stem", "document")
     artifact_dir.mkdir(parents=True, exist_ok=True)
     if selected_output_format == "pdf":
         artifact = artifact_dir / f"{output_stem}.pdf"
@@ -1479,7 +1596,7 @@ def _use_direct_pdf(
         "source_sha256": hashlib.sha256(data).hexdigest(),
     }
     record["status"] = "complete"
-    print(f"Résultat : {artifact}")
+    print(rt(language, "result", value=artifact))
     return record, not incomplete
 
 
@@ -1494,12 +1611,13 @@ def _use_direct_epub(
     publication_is_work: bool,
     reading_mode: dict | None,
 ) -> tuple[dict, bool]:
+    language = getattr(args, "language", "fr")
     selected_output_format = (
         "epub" if args.output_format in {"auto", "original"} else args.output_format
     )
     if args.output_format in {"auto", "original"}:
         print("Format original retenu : EPUB")
-    data, epub_info = _fetch_browser_epub(context, candidate)
+    data, epub_info = _fetch_browser_epub(context, candidate, language)
     size_mb = len(data) / (1024 * 1024)
     spine_count = int(epub_info["spine_item_count"])
     referenced_count = int(epub_info.get("referenced_document_count") or 0)
@@ -1508,33 +1626,36 @@ def _use_direct_epub(
     incomplete = bool(missing_documents)
     detected_count = present_referenced if referenced_count else spine_count
     expected_count = referenced_count or spine_count
-    print("Détection : ressource EPUB chargée par le navigateur")
-    print(f"Ressource documentaire : {size_mb:.1f} Mo")
-    print(
-        f"Sections EPUB dans l'ordre de lecture : {spine_count} "
-        "(document redistribuable, sans nombre de pages fixe)"
-    )
+    print(rt(language, "epub_detection"))
+    print(rt(language, "document_resource", size=size_mb))
+    print(rt(language, "epub_sections", count=spine_count))
     if referenced_count:
         print(
-            "Documents annoncés par la table des matières EPUB : "
-            f"{present_referenced}/{referenced_count} présents"
+            rt(
+                language,
+                "epub_toc",
+                present=present_referenced,
+                total=referenced_count,
+            )
         )
     if incomplete:
-        print(
-            "[INCOMPLET] EPUB : "
-            f"{len(missing_documents)} document(s) de lecture annoncé(s) "
-            "sont physiquement absents du conteneur reçu."
-        )
+        print(rt(language, "epub_incomplete", missing=len(missing_documents)))
         if epub_info.get("orphan_local_entries"):
             print(
                 "Diagnostic EPUB : des entrées ZIP locales détachées existent "
                 "et demandent une analyse supplémentaire."
             )
         else:
-            print(
-                "Diagnostic EPUB : aucun fichier ZIP local détaché et aucune "
-                "donnée ajoutée après la fin du conteneur n'ont été trouvés."
+            print(rt(language, "epub_no_orphans"))
+        print(
+            rt(
+                language,
+                "extraction_refused",
+                present=detected_count,
+                total=expected_count,
+                missing=len(missing_documents),
             )
+        )
 
     record = {
         "index": chapter.index,
@@ -1580,8 +1701,9 @@ def _use_direct_epub(
         record["status"] = "incomplete"
         record["quality"] = "incomplete EPUB rejected before output"
         print(
-            "Aucun fichier sauvegardé : la ressource EPUB reçue ne couvre pas "
-            "tous les documents annoncés par sa propre table des matières."
+            "Aucun fichier de lecture sauvegardé : la ressource EPUB reçue "
+            "ne couvre pas tous les documents annoncés par sa propre table "
+            "des matières."
         )
         return record, False
 
@@ -1592,7 +1714,7 @@ def _use_direct_epub(
         output_stem = _chapter_stem(chapter)
     else:
         artifact_dir = output_dir
-        output_stem = "document"
+        output_stem = getattr(args, "output_stem", "document")
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     page_count: int | None = None
@@ -1662,7 +1784,7 @@ def _use_direct_epub(
         "source_sha256": hashlib.sha256(data).hexdigest(),
     }
     record["status"] = "complete"
-    print(f"Résultat : {artifact}")
+    print(rt(language, "result", value=artifact))
     return record, True
 
 
@@ -1682,11 +1804,33 @@ def extract_chapter(
     document_candidates: list[dict],
     metadata_candidates: list[dict],
 ) -> tuple[object, dict, bool]:
-    print(f"\n{_part_label(chapter.kind)} {chapter.index} : {chapter.title}")
+    language = getattr(args, "language", "fr")
+    print(
+        "\n" + rt(
+            language,
+            "part_heading",
+            label=_part_label(chapter.kind, language=language),
+            index=chapter.index,
+            title=chapter.title,
+        )
+    )
     if chapter.pages is None and not reuse_current_page:
         page = navigate_to_source(context, page, chapter.source_url, args.retries)
 
+    interstitial = _complete_access_check(page, args)
+    if not interstitial["passed"]:
+        raise RuntimeError(
+            "La vérification du site est toujours active. Relancez avec "
+            "--wait-for-user et terminez-la dans Chrome avant de continuer."
+        )
+    if interstitial["encountered"]:
+        print(rt(language, "access_check", seconds=interstitial["waited_ms"] / 1000))
+
     _wait_for_selected_part(page, chapter)
+
+    consent = dismiss_cookie_consent(page)
+    if consent:
+        print(rt(language, "consent", value=consent["action"]))
 
     if args.ready_selector:
         page.locator(args.ready_selector).first.wait_for(
@@ -1696,14 +1840,11 @@ def extract_chapter(
 
     reader_gate = activate_reader_gate(page)
     if reader_gate:
-        print(f"Démarrage du lecteur : {reader_gate['action']}")
+        print(rt(language, "reader_start", value=reader_gate["action"]))
 
     readiness = wait_for_reader_readiness(page)
     if readiness["waited_ms"]:
-        print(
-            "Initialisation du lecteur : "
-            f"{readiness['waited_ms'] / 1000:.1f} s"
-        )
+        print(rt(language, "reader_initialization", seconds=readiness["waited_ms"] / 1000))
 
     reading_mode = (
         {
@@ -1719,7 +1860,13 @@ def extract_chapter(
         )
     )
     if reading_mode:
-        print(f"Mode de lecture : {reading_mode['action']}")
+        print(
+            rt(
+                language,
+                "reading_mode",
+                value=_localized_runtime_value(reading_mode["action"], language),
+            )
+        )
 
     early_expected_info = (
         ExpectedCount(args.expected, "option --expected", "élevée")
@@ -1744,8 +1891,12 @@ def extract_chapter(
             else None,
         )
         print(
-            "Chargement progressif : "
-            f"{hydration['images_seen']} image(s), {hydration['steps']} étape(s)"
+            rt(
+                language,
+                "progressive_loading",
+                images=hydration["images_seen"],
+                steps=hydration["steps"],
+            )
         )
 
     expected_info = early_expected_info
@@ -1829,16 +1980,33 @@ def extract_chapter(
             and substantial_discrepancy
         ):
             print(
-                f"Compteur visible {expected_info.value} ignoré : "
-                f"la séquence de ressources continue contient {len(pages)} pages."
+                rt(
+                    language,
+                    "visible_counter_ignored",
+                    visible=expected_info.value,
+                    count=len(pages),
+                )
             )
             expected_info = sequence_expected
     expected = expected_info.value if expected_info else None
 
-    print(f"Détection : {selector_used}")
-    print(f"Ressources de page trouvées : {len(pages)}")
+    print(
+        rt(
+            language,
+            "detection",
+            value=_localized_runtime_value(selector_used, language),
+        )
+    )
+    print(rt(language, "resources_found", count=len(pages)))
     if expected_info:
-        print(f"Pages attendues : {expected_info.value} ({expected_info.source})")
+        print(
+            rt(
+                language,
+                "pages_expected",
+                count=expected_info.value,
+                source=_localized_runtime_value(expected_info.source, language),
+            )
+        )
         if len(pages) != expected:
             raise RuntimeError(
                 f"Détection incomplète : {len(pages)}/{expected}. "
@@ -1850,9 +2018,17 @@ def extract_chapter(
             (urlparse(item["url"]).hostname or "").lower()
             for item in pages
             if item.get("url")
+            and urlparse(item["url"]).scheme != "browser-blob"
         }
     )
-    print("Domaines détectés :", ", ".join(discovered_hosts))
+    print(
+        rt(
+            language,
+            "domains",
+            value=", ".join(discovered_hosts)
+            or _localized_runtime_value("ressources internes du navigateur", language),
+        )
+    )
 
     selected_output_format = (
         "cbz" if args.output_format in {"auto", "original"} else args.output_format
@@ -1897,7 +2073,7 @@ def extract_chapter(
             if selected_output_format == "images"
             else work_dir / "images"
         )
-        output_stem = "document"
+        output_stem = getattr(args, "output_stem", "document")
 
     images_dir.mkdir(parents=True, exist_ok=True)
     chapter_hosts = set(allowed_hosts)
@@ -1959,16 +2135,26 @@ def extract_chapter(
         chrome_executable=Path(args.chrome),
         output_stem=output_stem,
     )
+    if (
+        selected_output_format in {"cbz", "cbr"}
+        and ordered
+        and all(path.suffix.lower() == ".svg" for path in ordered)
+    ):
+        record["quality"] = (
+            "SVG source rendered as lossless PNG at its native viewBox size "
+            "for CBZ/CBR reader compatibility"
+        )
     record["artifact"] = {
         "path": _artifact_manifest_path(artifact, output_dir),
         "sha256": file_sha256(artifact) if artifact.is_file() else None,
     }
     record["status"] = "complete"
-    print(f"Résultat : {artifact}")
+    print(rt(language, "result", value=artifact))
     return page, record, True
 
 
 def run(args) -> int:
+    language = getattr(args, "language", "fr")
     selector = normalize_selector_input(args.selector)
     source_host = (urlparse(args.url).hostname or "").lower()
     allowed_hosts = {
@@ -1979,7 +2165,6 @@ def run(args) -> int:
     if not Path(args.chrome).is_file():
         raise RuntimeError(f"Chrome introuvable : {args.chrome}")
     output_dir: Path = args.output
-    work_dir = output_dir / ".komaforge-work"
     port = find_free_port()
 
     temporary_profile = None
@@ -1987,7 +2172,7 @@ def run(args) -> int:
         profile_dir = args.profile_dir.expanduser().resolve()
         profile_dir.mkdir(parents=True, exist_ok=True)
     else:
-        temporary_profile = tempfile.TemporaryDirectory(prefix="document-extractor-profile-")
+        temporary_profile = tempfile.TemporaryDirectory(prefix="komaforge-profile-")
         profile_dir = Path(temporary_profile.name)
 
     chrome = subprocess.Popen(
@@ -1996,6 +2181,9 @@ def run(args) -> int:
             f"--remote-debugging-port={port}",
             f"--user-data-dir={profile_dir}",
             "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-background-mode",
+            "--disable-sync",
             "about:blank",
         ]
     )
@@ -2005,6 +2193,7 @@ def run(args) -> int:
         with sync_playwright() as playwright:
             browser = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
             context = browser.contexts[0]
+            context.add_init_script(script=BLOB_CAPTURE_INIT_SCRIPT)
             document_candidates: list[dict] = []
             metadata_candidates: list[dict] = []
             context.on(
@@ -2016,7 +2205,7 @@ def run(args) -> int:
             )
             page = context.pages[0] if context.pages else context.new_page()
 
-            print(f"Ouverture : {args.url}")
+            print(rt(language, "opening", value=args.url))
             page = navigate_to_source(context, page, args.url, args.retries)
 
             if args.wait_for_user:
@@ -2024,28 +2213,133 @@ def run(args) -> int:
                     "Effectuez la connexion ou la validation dans Chrome, "
                     "puis appuyez sur Entrée..."
                 )
+            interstitial = _complete_access_check(page, args)
+            if not interstitial["passed"]:
+                raise RuntimeError(
+                    "La vérification du site est toujours active. Relancez "
+                    "avec --wait-for-user et terminez-la dans Chrome avant "
+                    "de continuer."
+                )
+            if interstitial["encountered"]:
+                print(rt(language, "access_check", seconds=interstitial["waited_ms"] / 1000))
             if args.ready_selector:
                 page.locator(args.ready_selector).first.wait_for(
                     state="visible",
                     timeout=PAGE_TIMEOUT_MS,
                 )
 
-            reader_gate = activate_reader_gate(page)
+            consent = dismiss_cookie_consent(page)
+            if consent:
+                print(rt(language, "consent", value=consent["action"]))
+
+            reader_entry = discover_linked_reader(context, page)
+            if reader_entry and reader_entry.get("url"):
+                print(
+                    rt(
+                        language,
+                        "linked_reader",
+                        action=reader_entry["action"],
+                        url=reader_entry["url"],
+                    )
+                )
+                page = navigate_to_source(
+                    context,
+                    page,
+                    reader_entry["url"],
+                    args.retries,
+                )
+                reader_interstitial = _complete_access_check(page, args)
+                if not reader_interstitial["passed"]:
+                    raise RuntimeError(
+                        "Le lecteur lié reste derrière la vérification du site. "
+                        "Relancez avec --wait-for-user."
+                    )
+                linked_consent = dismiss_cookie_consent(page)
+                if linked_consent:
+                    print(rt(language, "consent", value=linked_consent["action"]))
+            elif reader_entry and reader_entry.get("error"):
+                raise RuntimeError(
+                    "Page produit eBooks détectée, mais son action "
+                    f"{reader_entry['action']!r} n'a fourni aucun lecteur."
+                )
+            elif is_ebooks_product_url(page.url):
+                availability = page.locator("body").inner_text(timeout=5_000)
+                unavailable = any(
+                    marker.casefold() in availability.casefold()
+                    for marker in (
+                        "no longer available for sale",
+                        "not available in your country",
+                    )
+                )
+                detail = (
+                    " Le site indique aussi que ce titre est indisponible "
+                    "à la vente ou dans la région courante."
+                    if unavailable
+                    else ""
+                )
+                raise RuntimeError(
+                    "Page produit eBooks détectée, mais aucune action Preview, "
+                    "Read sample ou Read online n'est exposée dans cette "
+                    f"session.{detail}"
+                )
+
+            reader_landing_title = page.title().strip()
+            structured_catalog = None
+            if selector is None and args.scope != "document":
+                structured_catalog = discover_manga_up_catalog(page, args.url)
+            source_limited = bool(
+                structured_catalog and structured_catalog.access_limited
+            )
+            if structured_catalog:
+                print(
+                    rt(
+                        language,
+                        "catalog",
+                        accessible=structured_catalog.accessible_count,
+                        total=structured_catalog.total_count,
+                    )
+                )
+                if source_limited:
+                    print(rt(language, "source_limit"))
+
+            reader_gate = (
+                None if structured_catalog else activate_reader_gate(page)
+            )
             if reader_gate:
-                print(f"Démarrage du lecteur : {reader_gate['action']}")
+                print(rt(language, "reader_start", value=reader_gate["action"]))
+
+            opened_chapter_number = None
+            if reader_gate:
+                try:
+                    reader_text = page.locator("body").inner_text(timeout=5_000)
+                    chapter_match = re.search(
+                        r"\b(?:chapter|chapitre)\s*"
+                        r"([0-9]+(?:\.[0-9]+)?(?:\s*-\s*[0-9]+)?)\b",
+                        reader_text,
+                        flags=re.IGNORECASE,
+                    )
+                    if chapter_match:
+                        opened_chapter_number = re.sub(
+                            r"\s*-\s*",
+                            " -",
+                            chapter_match.group(1),
+                        )
+                except Exception:
+                    pass
 
             readiness = wait_for_reader_readiness(page)
             if readiness["waited_ms"]:
-                print(
-                    "Initialisation du lecteur : "
-                    f"{readiness['waited_ms'] / 1000:.1f} s"
-                )
+                print(rt(language, "reader_initialization", seconds=readiness["waited_ms"] / 1000))
 
-            provider = None if selector else discover_provider(context, page, args.url)
+            provider = (
+                None
+                if selector or structured_catalog
+                else discover_provider(context, page, args.url)
+            )
             if provider:
                 allowed_hosts.update(provider.allowed_hosts)
-                print(f"Profil du site : {provider.name}")
-                print(f"Œuvre : {provider.title}")
+                print(rt(language, "site_profile", value=provider.name))
+                print(rt(language, "work", value=provider.title))
                 all_chapters = [
                     ChapterTask(
                         index=chapter.index,
@@ -2061,7 +2355,11 @@ def run(args) -> int:
                 publication_title = provider.title
                 publication_type = provider.publication_type
             else:
-                chapter_links = []
+                chapter_links = (
+                    list(structured_catalog.chapters)
+                    if structured_catalog
+                    else []
+                )
                 selectable_parts = []
                 should_discover_work = (
                     selector is None
@@ -2071,7 +2369,7 @@ def run(args) -> int:
                         or not looks_like_chapter_url(args.url)
                     )
                 )
-                if should_discover_work:
+                if should_discover_work and not chapter_links:
                     chapter_links = discover_chapters(
                         page,
                         args.url,
@@ -2088,7 +2386,27 @@ def run(args) -> int:
                         "Aucune liste fiable de chapitres ou volumes n'a été "
                         "trouvée sur cette URL."
                     )
-                publication_title = page.title().strip() or output_dir.name
+                publication_title = (
+                    reader_landing_title
+                    if reader_gate and reader_landing_title
+                    else page.title().strip() or output_dir.name
+                )
+                if opened_chapter_number:
+                    publication_title = publication_folder_title(
+                        publication_title,
+                        args.url,
+                    )
+                    if not re.search(
+                        r"\b(?:chapter|chapitre)\s*"
+                        + re.escape(opened_chapter_number)
+                        + r"\b",
+                        publication_title,
+                        flags=re.IGNORECASE,
+                    ):
+                        publication_title = (
+                            f"{publication_title} - Chapter "
+                            f"{opened_chapter_number}"
+                        )
                 if chapter_links:
                     publication_type = "work"
                     all_chapters = [
@@ -2116,26 +2434,34 @@ def run(args) -> int:
                         for part in selectable_parts
                     ]
                 else:
-                    publication_type = "document"
+                    publication_type = (
+                        "chapter" if opened_chapter_number else "document"
+                    )
                     all_chapters = [
                         ChapterTask(
                             index=1,
-                            number="1",
+                            number=opened_chapter_number or "1",
                             title=publication_title,
                             source_url=args.url,
-                            kind="document",
+                            kind=(
+                                "chapter" if opened_chapter_number else "document"
+                            ),
                         )
                     ]
 
             publication_is_work = (
                 publication_type == "work" or len(all_chapters) > 1
             )
-            print(f"Structure : {publication_type}")
+            print(rt(language, "structure", value=publication_type))
             part_kind = all_chapters[0].kind if all_chapters else "part"
             agreement = "détectées" if part_kind == "part" else "détectés"
             print(
-                f"{_part_label(part_kind, plural=True)} {agreement} : "
-                f"{len(all_chapters)}"
+                rt(
+                    language,
+                    "parts_detected",
+                    label=_part_label(part_kind, plural=True, language=language),
+                    count=len(all_chapters),
+                )
             )
             if publication_is_work:
                 chapters_to_display = (
@@ -2154,17 +2480,52 @@ def run(args) -> int:
                     all_chapters,
                     args.chapters,
                     part_kind,
+                    default_expression=("all" if structured_catalog else "1"),
+                    language=language,
                 )
                 if len(selected_chapters) != len(all_chapters):
                     agreement = (
                         "sélectionnées" if part_kind == "part" else "sélectionnés"
                     )
                     print(
-                        f"{_part_label(part_kind, plural=True)} {agreement} : "
-                        f"{len(selected_chapters)}"
+                        rt(
+                            language,
+                            "parts_selected",
+                            label=_part_label(part_kind, plural=True, language=language),
+                            count=len(selected_chapters),
+                        )
                     )
             else:
                 selected_chapters = all_chapters
+
+            output_title = publication_folder_title(
+                publication_title,
+                args.url,
+                publication_is_work=publication_is_work,
+            )
+            if getattr(args, "output_auto_named", False):
+                output_dir = choose_title_output_dir(
+                    args.output_root,
+                    output_title,
+                    args.url,
+                    expected_manifest=(
+                        "publication.json" if publication_is_work else "pages.json"
+                    ),
+                )
+            elif not args.inspect:
+                ensure_output_dir_is_compatible(output_dir, args.url)
+            work_dir = output_dir / ".komaforge-work"
+            args.output_stem = (
+                safe_slug(output_title)
+                if getattr(args, "output_auto_named", False)
+                else "document"
+            )
+            if args.inspect:
+                print(rt(language, "detected_title", value=output_title))
+                print(rt(language, "planned_folder", value=output_dir))
+            else:
+                print(rt(language, "detected_title", value=output_title))
+                print(rt(language, "final_folder", value=output_dir))
 
             manifest_path = output_dir / (
                 "publication.json" if publication_is_work else "pages.json"
@@ -2178,7 +2539,8 @@ def run(args) -> int:
                 "watermark_texts": args.watermark_text,
                 "publication": {
                     "type": publication_type,
-                    "title": publication_title,
+                    "title": output_title,
+                    "source_title": publication_title,
                     "part_kind": part_kind,
                     "part_count": len(all_chapters),
                     "selected_part_count": len(selected_chapters),
@@ -2187,6 +2549,14 @@ def run(args) -> int:
                     "chapters": [],
                 },
             }
+            if structured_catalog:
+                manifest["publication"]["availability"] = {
+                    "catalog_part_count": structured_catalog.total_count,
+                    "accessible_part_count": structured_catalog.accessible_count,
+                    "selected_accessible_part_count": len(selected_chapters),
+                    "access_limited": structured_catalog.access_limited,
+                    "source": structured_catalog.source,
+                }
             completed = True
             chapter_records: list[dict] = []
             for position, chapter in enumerate(selected_chapters):
@@ -2243,17 +2613,37 @@ def run(args) -> int:
                 manifest["publication"]["chapters"] = chapter_records
                 if publication_is_work and not args.inspect:
                     manifest["publication"]["status"] = (
-                        "complete" if completed else "incomplete"
+                        "limited_by_source"
+                        if completed and source_limited
+                        else "complete"
+                        if completed
+                        else "incomplete"
                     )
                     write_json(manifest_path, manifest)
 
+            if source_limited and structured_catalog:
+                print(
+                    rt(
+                        language,
+                        "source_result",
+                        accessible=structured_catalog.accessible_count,
+                        total=structured_catalog.total_count,
+                    )
+                )
             if args.inspect:
-                print("Inspection terminée : aucun fichier téléchargé.")
+                if completed:
+                    print(rt(language, "inspection_complete"))
+                else:
+                    print(rt(language, "inspection_incomplete"))
                 return 0 if completed else 2
 
             manifest["publication"]["chapters"] = chapter_records
             manifest["publication"]["status"] = (
-                "complete" if completed else "incomplete"
+                "limited_by_source"
+                if completed and source_limited
+                else "complete"
+                if completed
+                else "incomplete"
             )
             if not publication_is_work:
                 record = chapter_records[0]
@@ -2297,7 +2687,7 @@ def run(args) -> int:
             write_json(manifest_path, manifest)
             if completed and args.output_format != "images" and work_dir.exists():
                 remove_validated_work_directory(work_dir, output_dir)
-            print(f"Manifeste : {manifest_path}")
+            print(rt(language, "manifest", value=manifest_path))
             return 0 if completed else 2
     finally:
         if browser is not None:
@@ -2311,7 +2701,4 @@ def run(args) -> int:
         except Exception:
             pass
         if temporary_profile is not None:
-            try:
-                temporary_profile.cleanup()
-            except Exception:
-                pass
+            cleanup_temporary_profile(temporary_profile, profile_dir)

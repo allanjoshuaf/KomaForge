@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse, urlunparse
 
@@ -133,9 +134,29 @@ def discover_provider(context, page, url: str) -> ProviderDiscovery | None:
     if payload.get("status") != "ok" or not isinstance(payload.get("content"), dict):
         raise RuntimeError("Réponse inattendue du manifeste Calaméo.")
 
-    locator = page.locator("img.page")
-    locator.first.wait_for(state="attached", timeout=PAGE_TIMEOUT_MS)
-    loaded_urls = locator.evaluate_all(
-        "images => images.map(image => image.currentSrc || image.src).filter(Boolean)"
+    deadline = time.monotonic() + PAGE_TIMEOUT_MS / 1000
+    last_error: RuntimeError | None = None
+    while time.monotonic() < deadline:
+        loaded_urls = page.evaluate(
+            """
+            () => {
+                const images = [...document.querySelectorAll('img')]
+                    .map(image => image.currentSrc || image.src)
+                    .filter(Boolean);
+                const resources = performance.getEntriesByType('resource')
+                    .map(entry => entry.name)
+                    .filter(Boolean);
+                return [...new Set([...images, ...resources])];
+            }
+            """
+        )
+        try:
+            return build_calameo_pages(payload["content"], loaded_urls, url)
+        except RuntimeError as exc:
+            if "pas encore exposé" not in str(exc):
+                raise
+            last_error = exc
+        page.wait_for_timeout(250)
+    raise last_error or RuntimeError(
+        "Calaméo n'a pas exposé de page SVGZ signée dans le délai prévu."
     )
-    return build_calameo_pages(payload["content"], loaded_urls, url)

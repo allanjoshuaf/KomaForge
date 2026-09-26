@@ -13,18 +13,24 @@ import unittest
 import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from document_extractor.detection import (
     _auto_group,
+    discover_linked_reader,
+    is_ebooks_product_url,
     looks_like_chapter_url,
     normalize_chapter_candidates,
+    normalize_manga_up_catalog,
     normalize_selectable_part_candidates,
     normalize_selector_input,
     select_chapters,
+    wait_for_access_interstitial,
 )
 from document_extractor.engine import (
     ChapterTask,
+    _complete_access_check,
     _ask_interactive_detached_recovery,
     _fetch_pdf_in_ranges,
     download_pages,
@@ -64,6 +70,103 @@ class ChapterDiscoveryTests(unittest.TestCase):
             looks_like_chapter_url("https://example.test/manga/demo/chapter-12.5")
         )
         self.assertFalse(looks_like_chapter_url("https://example.test/manga/demo"))
+
+    def test_recognizes_ebooks_product_pages_only(self):
+        self.assertTrue(
+            is_ebooks_product_url(
+                "https://www.ebooks.com/en-us/book/347114076/the-demon-star/"
+            )
+        )
+        self.assertTrue(is_ebooks_product_url("https://ebooks.com/book/123/title/"))
+        self.assertFalse(
+            is_ebooks_product_url("https://reader.ebooks.com/preview?uid=demo")
+        )
+        self.assertFalse(is_ebooks_product_url("https://example.test/book/123/title"))
+
+    def test_ebooks_product_prefers_explicit_reader_link(self):
+        class FakePage:
+            url = "https://www.ebooks.com/en-us/book/347114076/the-demon-star/"
+
+            @staticmethod
+            def evaluate(_script):
+                return {
+                    "marker": "reader-entry-test",
+                    "label": "Preview",
+                    "href": "https://reader.ebooks.com/preview?uid=authorized-test",
+                }
+
+        result = discover_linked_reader(object(), FakePage())
+
+        self.assertEqual(
+            result,
+            {
+                "url": "https://reader.ebooks.com/preview?uid=authorized-test",
+                "action": "Preview",
+            },
+        )
+
+    def test_ebooks_product_uses_preview_launch_response(self):
+        reader_url = (
+            "https://reader.ebooks.com/preview?uid=preview-test&reqid=7"
+        )
+
+        class FakeResponse:
+            url = (
+                "https://reader-backend.ebooks.com/"
+                "api/reader-instance/preview-launch"
+            )
+            ok = True
+
+            @staticmethod
+            def json():
+                return {"ok": True, "previewUrl": reader_url}
+
+        class FakeControl:
+            def __init__(self, page):
+                self.page = page
+
+            @property
+            def first(self):
+                return self
+
+            def click(self, **_kwargs):
+                self.page.callback(FakeResponse())
+
+        class FakePage:
+            url = "https://www.ebooks.com/en-us/book/347114076/the-demon-star/"
+            frames = []
+
+            def evaluate(self, _script):
+                return {
+                    "marker": "reader-entry-test",
+                    "label": "Preview",
+                    "href": "",
+                }
+
+            def on(self, _event, callback):
+                self.callback = callback
+
+            def remove_listener(self, _event, callback):
+                self.removed_callback = callback
+
+            def locator(self, _selector):
+                return FakeControl(self)
+
+            @staticmethod
+            def wait_for_timeout(_milliseconds):
+                return None
+
+            @staticmethod
+            def is_closed():
+                return False
+
+        page = FakePage()
+        context = SimpleNamespace(pages=[page])
+
+        result = discover_linked_reader(context, page)
+
+        self.assertEqual(result, {"url": reader_url, "action": "Preview"})
+        self.assertIs(page.removed_callback, page.callback)
 
     def test_prefers_a_numbered_page_family_over_reader_noise(self):
         candidates = []
@@ -188,6 +291,80 @@ class ChapterDiscoveryTests(unittest.TestCase):
             selected = resolve_part_selection(parts, "ask", "volume")
         self.assertEqual([part.index for part in selected], [1])
 
+    def test_interactive_source_limited_catalog_can_default_to_all_parts(self):
+        parts = [
+            ChapterTask(
+                index=index,
+                number=f"1 -{index}",
+                title=f"Chapter 1 -{index}",
+                source_url=f"https://example.test/work/{index}",
+                kind="chapter",
+            )
+            for index in range(1, 4)
+        ]
+        with patch("builtins.input", return_value=""):
+            selected = resolve_part_selection(
+                parts,
+                "ask",
+                "chapter",
+                default_expression="all",
+            )
+        self.assertEqual([part.index for part in selected], [1, 2, 3])
+
+    def test_manga_up_catalog_separates_free_parts_from_full_catalog(self):
+        chapters = [
+            {
+                "id": 10761,
+                "mainName": "Chapter 2 -1",
+                "subName": "The Price of Life",
+                "price": 40,
+            },
+            {
+                "id": 10760,
+                "mainName": "Chapter 1 -3",
+                "subName": "The Two Alchemists",
+                "price": None,
+                "consumptionType": 3,
+            },
+            {
+                "id": 10759,
+                "mainName": "Chapter 1 -2",
+                "subName": "The Two Alchemists",
+                "price": None,
+                "consumptionType": 3,
+            },
+            {
+                "id": 10758,
+                "mainName": "Chapter 1 -1",
+                "subName": "The Two Alchemists",
+                "price": None,
+                "consumptionType": 3,
+            },
+        ]
+        payload = {"props": {"pageProps": {"data": {"chapters": chapters}}}}
+
+        catalog = normalize_manga_up_catalog(
+            payload,
+            "https://global.manga-up.com/manga/126?utm_source=test",
+        )
+
+        self.assertIsNotNone(catalog)
+        self.assertEqual(catalog.total_count, 4)
+        self.assertEqual(catalog.accessible_count, 3)
+        self.assertTrue(catalog.access_limited)
+        self.assertEqual(
+            [chapter.number for chapter in catalog.chapters],
+            ["1 -1", "1 -2", "1 -3"],
+        )
+        self.assertEqual(
+            [chapter.url for chapter in catalog.chapters],
+            [
+                "https://global.manga-up.com/manga/126/10758",
+                "https://global.manga-up.com/manga/126/10759",
+                "https://global.manga-up.com/manga/126/10760",
+            ],
+        )
+
 
 class FakePage:
     def __init__(self, outcomes):
@@ -217,6 +394,44 @@ class FakeContext:
 
 
 class NavigationRecoveryTests(unittest.TestCase):
+    def test_access_check_tolerates_navigation_context_replacement(self):
+        class NavigatingPage:
+            def __init__(self):
+                self.calls = 0
+
+            def evaluate(self, _script):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError(
+                        "Execution context was destroyed, most likely because "
+                        "of a navigation"
+                    )
+                return {"title": "Livre", "body": "Contenu prêt"}
+
+            @staticmethod
+            def wait_for_timeout(_milliseconds):
+                return None
+
+        result = wait_for_access_interstitial(NavigatingPage(), timeout_ms=1_000)
+
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["encountered"])
+
+    def test_interactive_challenge_requests_visible_user_completion(self):
+        args = SimpleNamespace(interactive=True, wait_for_user=False)
+        expected = {"passed": True, "encountered": True, "waited_ms": 0}
+        with patch(
+            "document_extractor.engine.access_interstitial_state",
+            return_value={"active": True, "title": "Just a moment"},
+        ), patch(
+            "document_extractor.engine.wait_for_access_interstitial",
+            return_value=expected,
+        ), patch("builtins.input", return_value="") as prompt:
+            result = _complete_access_check(object(), args)
+
+        self.assertEqual(result, expected)
+        prompt.assert_called_once()
+
     def test_transient_navigation_error_is_retried_in_a_clean_page(self):
         url = "https://example.test/book"
         failed = FakePage([RuntimeError("net::ERR_CONNECTION_RESET")])
@@ -423,6 +638,14 @@ class PdfTransportTests(unittest.TestCase):
 class EndToEndDetectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.profile_temp = tempfile.TemporaryDirectory(
+            prefix="komaforge-e2e-profile-"
+        )
+        cls.profile_environment = patch.dict(
+            os.environ,
+            {"KOMAFORGE_PROFILE_DIR": cls.profile_temp.name},
+        )
+        cls.profile_environment.start()
         cls.server = QuietThreadingHTTPServer(("127.0.0.1", 0), MockDocumentHandler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -432,6 +655,8 @@ class EndToEndDetectionTests(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.thread.join(timeout=5)
+        cls.profile_environment.stop()
+        cls.profile_temp.cleanup()
 
     def test_fully_automatic_extraction(self):
         project = Path(__file__).resolve().parents[1]
@@ -477,6 +702,28 @@ class EndToEndDetectionTests(unittest.TestCase):
             self.assertEqual(manifest["output_format"], "cbz")
             self.assertEqual(manifest["artifact"]["path"], "document.cbz")
 
+    def test_default_output_uses_title_for_folder_and_archive(self):
+        from document_extractor.cli import parse_args
+
+        url = f"http://127.0.0.1:{self.server.server_port}/document"
+        with tempfile.TemporaryDirectory() as temp:
+            args = parse_args([url])
+            args.output_root = Path(temp)
+            args.output = Path(temp) / "technical-placeholder"
+
+            result = run(args)
+
+            self.assertEqual(result, 0)
+            output = Path(temp) / "Lecteur-test"
+            archive = output / "Lecteur-test.cbz"
+            manifest = json.loads(
+                (output / "pages.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(archive.is_file())
+            self.assertEqual(manifest["publication"]["title"], "Lecteur test")
+            self.assertEqual(manifest["artifact"]["path"], "Lecteur-test.cbz")
+            self.assertFalse((Path(temp) / "technical-placeholder").exists())
+
     def test_reader_without_loading_text_waits_for_delayed_images(self):
         project = Path(__file__).resolve().parents[1]
         url = f"http://127.0.0.1:{self.server.server_port}/delayed-image-reader"
@@ -507,6 +754,136 @@ class EndToEndDetectionTests(unittest.TestCase):
             self.assertIn("Initialisation du lecteur", output)
             self.assertIn("Ressources de page trouvées : 3", output)
             self.assertIn("Pages attendues : 3", output)
+
+    def test_paginated_reader_collects_each_replaced_image_in_order(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/paginated-image-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "original",
+                    "--scope",
+                    "document",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(
+                "Détection : manifeste du lecteur ChapterReader", result.stdout
+            )
+            self.assertIn("Ressources de page trouvées : 4", result.stdout)
+            manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
+            self.assertEqual(manifest["detected"], 4)
+            self.assertEqual(manifest["saved"], 4)
+            self.assertEqual(manifest["output_format"], "cbz")
+            self.assertEqual(
+                [Path(item["url"]).name for item in manifest["pages"]],
+                ["page-1.png", "page-2.png", "page-3.png", "page-4.png"],
+            )
+            self.assertFalse((Path(temp) / "images").exists())
+            archive_path = Path(temp) / "document.cbz"
+            self.assertTrue(archive_path.is_file())
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertEqual(
+                    archive.namelist(),
+                    [
+                    "page-0001.png",
+                    "page-0002.png",
+                    "page-0003.png",
+                    "page-0004.png",
+                    ],
+                )
+
+    def test_cta_images_alone_are_never_accepted_as_pages(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/cta-only-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--inspect",
+                    "--scope",
+                    "document",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("aucun groupe fiable de pages", result.stderr)
+            self.assertFalse((Path(temp) / "pages.json").exists())
+
+    def test_virtual_blob_reader_preserves_all_original_webp_pages(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/virtual-blob-reader"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--format",
+                    "original",
+                    "--scope",
+                    "document",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(
+                "Lecteur virtualisé : 7 page(s) originale(s) sur 3 écran(s)",
+                result.stdout,
+            )
+            self.assertIn(
+                "Détection : lecteur virtualisé à pages Blob", result.stdout
+            )
+            manifest_path = Path(temp) / "pages.json"
+            raw_manifest = manifest_path.read_text(encoding="utf-8")
+            manifest = json.loads(raw_manifest)
+            self.assertNotIn("_embedded_", raw_manifest)
+            self.assertEqual(manifest["detected"], 7)
+            self.assertEqual(manifest["expected"], 7)
+            self.assertEqual(manifest["saved"], 7)
+            archive_path = Path(temp) / "document.cbz"
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertEqual(
+                    archive.namelist(),
+                    [f"page-{index:04d}.webp" for index in range(1, 8)],
+                )
 
     def test_canvas_reader_rejects_logos_and_reports_accessible_pages(self):
         project = Path(__file__).resolve().parents[1]
@@ -851,6 +1228,40 @@ class EndToEndDetectionTests(unittest.TestCase):
                 manifest["epub_diagnostics"]["missing_referenced_documents"],
                 ["OEBPS/three.xhtml"],
             )
+
+    def test_incomplete_epub_inspection_is_explicitly_cancelled(self):
+        project = Path(__file__).resolve().parents[1]
+        url = (
+            f"http://127.0.0.1:{self.server.server_port}"
+            "/network-epub-reader-incomplete"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--inspect",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn(
+                "[ANNULÉ] Extraction refusée : 2/3 document(s) disponible(s), "
+                "1 manquant(s).",
+                result.stdout,
+            )
+            self.assertIn("[ANNULÉ] Inspection incomplète", result.stdout)
+            self.assertFalse((Path(temp) / "document.epub").exists())
 
     @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
     def test_network_epub_can_be_converted_to_pdf_when_selected(self):
