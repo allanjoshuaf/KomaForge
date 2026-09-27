@@ -79,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_next = commands.add_parser(
         "run-next",
-        help="Exécute le prochain travail inspect ou download",
+        help="Exécute le prochain travail inspect, download ou update",
     )
     run_next.add_argument("--json", action="store_true", dest="as_json")
     _add_queue_path(run_next)
@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.as_json:
                     print(json.dumps({"executed": False}, sort_keys=True))
                 else:
-                    print("Aucun travail inspect ou download en attente.")
+                    print("Aucun travail inspect, download ou update en attente.")
                 return 2
             _print_job(job, args.as_json)
             return 0 if job.status is JobStatus.COMPLETED else 1

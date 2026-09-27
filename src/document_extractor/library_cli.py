@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from .library import SCHEMA_VERSION, LibraryIndex
+from .library import LibraryIndex
 from .library_service import LibraryService
 from .library_state import LibraryState
 from .paths import default_output_root
@@ -211,13 +210,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{item['completed_parts']} terminée(s)"
                     )
             return 0
-        if index.schema_version() != SCHEMA_VERSION:
-            print(
-                "Index absent ou incompatible. Lancez d’abord "
-                "`komaforge-library rebuild`.",
-                file=sys.stderr,
-            )
-            return 2
+        index.ensure(root)
         if args.command == "publications":
             publications = index.list_publications()
             if args.as_json:

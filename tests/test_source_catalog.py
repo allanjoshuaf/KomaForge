@@ -6,6 +6,8 @@ from document_extractor.sources import (
     BUILTIN_READER_FAMILIES,
     BUILTIN_SOURCE_CANDIDATES,
     GenericWebSource,
+    SourceAccess,
+    SourceIntegration,
     SourceMetadata,
     SourceStatus,
     build_default_registry,
@@ -31,7 +33,19 @@ class SourceCatalogTests(unittest.TestCase):
         metadata = metadata_for(ExternalAdapter())
 
         self.assertEqual(metadata.status, SourceStatus.EXPERIMENTAL)
+        self.assertEqual(metadata.integration, SourceIntegration.GENERIC)
+        self.assertEqual(metadata.access, SourceAccess.VARIABLE)
         self.assertEqual(metadata.version, "unversioned")
+
+    def test_generic_candidates_can_be_validated_without_becoming_specialized(self):
+        candidates = {candidate.id: candidate for candidate in BUILTIN_SOURCE_CANDIDATES}
+
+        for source_id in ("sushiscan", "mangareader-pro"):
+            with self.subTest(source=source_id):
+                candidate = candidates[source_id]
+                self.assertEqual(candidate.status, SourceStatus.VALIDATED)
+                self.assertEqual(candidate.integration, SourceIntegration.GENERIC)
+                self.assertEqual(candidate.access, SourceAccess.FULL)
 
     def test_builtin_family_ids_are_unique(self):
         identifiers = [family.id for family in BUILTIN_READER_FAMILIES]

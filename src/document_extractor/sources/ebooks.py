@@ -20,7 +20,7 @@ from ..models import (
     ResourceKind,
 )
 from ..paths import canonical_source_identity, clean_publication_title
-from .catalog import SourceMetadata, SourceStatus
+from .catalog import SourceAccess, SourceMetadata, SourceStatus
 from .contracts import (
     MatchContext,
     MatchResult,
@@ -120,6 +120,7 @@ class EBooksSource:
         version="1",
         status=SourceStatus.DEGRADED,
         status_reason="reader sessions may expose only a limited sample of the publication",
+        access=SourceAccess.SESSION_DEPENDENT,
         family_ids=("direct-document",),
         last_verified="2026-09-27",
     )

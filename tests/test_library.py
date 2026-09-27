@@ -50,6 +50,26 @@ def write_manifest(path: Path, source_url: str, title: str, page_url: str) -> No
 
 
 class LibraryIndexTests(unittest.TestCase):
+    def test_ensure_builds_only_when_index_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            write_manifest(
+                root / "One" / "pages.json",
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.jpg",
+            )
+            index = LibraryIndex(database)
+
+            summary, rebuilt = index.ensure(root)
+            second_summary, rebuilt_again = index.ensure(root)
+
+            self.assertTrue(rebuilt)
+            self.assertEqual(summary.works, 1)
+            self.assertFalse(rebuilt_again)
+            self.assertIsNone(second_summary)
+
     def test_discovers_only_authoritative_manifest_names(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

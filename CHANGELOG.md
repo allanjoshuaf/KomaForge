@@ -4,6 +4,14 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- les statuts de source distinguent maintenant la compatibilité, le type
+  d’intégration et les conditions d’accès ; SushiScan et MangaReader.pro sont
+  répertoriés comme validés via le moteur générique ;
+- l’index de bibliothèque est créé lorsqu’il manque et actualisé automatiquement
+  après une extraction réussie ;
+- les travaux `update` inspectent la publication indexée, comparent ses parties et
+  mettent uniquement les nouveautés en file, sans doublonner un téléchargement
+  déjà en attente ;
 - le menu interactif donne maintenant accès aux sources, aux familles de lecteurs,
   au diagnostic d’URL, à la bibliothèque locale et à la file d’attente persistante ;
 - la bibliothèque peut être reconstruite, parcourue, recherchée et suivie sans

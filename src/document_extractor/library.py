@@ -428,6 +428,13 @@ class LibraryIndex:
             resources=resource_count,
         )
 
+    def ensure(self, output_root: Path) -> tuple[RebuildSummary | None, bool]:
+        """Create an absent/incompatible index and report whether it was rebuilt."""
+
+        if self.schema_version() == SCHEMA_VERSION:
+            return None, False
+        return self.rebuild(output_root), True
+
     def schema_version(self) -> int:
         if not self.path.is_file():
             return 0
@@ -514,6 +521,15 @@ class LibraryIndex:
                 """
             ).fetchall()
         return tuple(dict(row) for row in rows)
+
+    def find_publication_by_url(self, source_url: str) -> Publication | None:
+        """Load the indexed publication matching a stable source URL."""
+
+        identity = canonical_source_identity(source_url)
+        for row in self.iter_publications():
+            if canonical_source_identity(str(row["source_url"])) == identity:
+                return self.load_publication(str(row["id"]))
+        return None
 
     def status(self) -> dict:
         if not self.path.is_file():

@@ -332,6 +332,8 @@ RUNTIME_MESSAGES: dict[str, dict[str, str]] = {
     "inspection_incomplete": {"fr": "[ANNULÉ] Inspection incomplète : aucune publication ne serait créée.", "en": "[CANCELLED] Incomplete inspection: no publication would be created.", "ru": "[ОТМЕНЕНО] Проверка неполная: публикация не будет создана.", "zh": "[已取消] 检查不完整：不会创建出版物。"},
     "result": {"fr": "Résultat : {value}", "en": "Result: {value}", "ru": "Результат: {value}", "zh": "结果：{value}"},
     "manifest": {"fr": "Manifeste : {value}", "en": "Manifest: {value}", "ru": "Манифест: {value}", "zh": "清单：{value}"},
+    "library_updated": {"fr": "Bibliothèque mise à jour : {value}", "en": "Library updated: {value}", "ru": "Библиотека обновлена: {value}", "zh": "书库已更新：{value}"},
+    "library_update_failed": {"fr": "[AVERTISSEMENT] Le fichier est valide, mais l’index local n’a pas été actualisé ({value}).", "en": "[WARNING] The file is valid, but the local index was not refreshed ({value}).", "ru": "[ПРЕДУПРЕЖДЕНИЕ] Файл корректен, но локальный индекс не обновлён ({value}).", "zh": "[警告] 文件有效，但本地索引未更新（{value}）。"},
     "consent": {"fr": "Consentement : {value}", "en": "Consent: {value}", "ru": "Согласие: {value}", "zh": "Cookie 同意：{value}"},
     "reader_start": {"fr": "Démarrage du lecteur : {value}", "en": "Reader started: {value}", "ru": "Запуск читалки: {value}", "zh": "阅读器已启动：{value}"},
     "reader_initialization": {"fr": "Initialisation du lecteur : {seconds:.1f} s", "en": "Reader initialization: {seconds:.1f} s", "ru": "Инициализация читалки: {seconds:.1f} с", "zh": "阅读器初始化：{seconds:.1f} 秒"},

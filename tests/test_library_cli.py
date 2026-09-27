@@ -7,6 +7,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from document_extractor.library import LibraryIndex
 from document_extractor.library_cli import main
 
 
@@ -80,16 +81,20 @@ class LibraryCliTests(unittest.TestCase):
             self.assertEqual(list_code, 0)
             self.assertEqual(list_payload[0]["title"], "One")
 
-    def test_list_requires_a_current_index(self):
+    def test_list_creates_a_missing_index_automatically(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "outputs"
-            error = StringIO()
+            output = StringIO()
 
-            with redirect_stderr(error):
+            with redirect_stdout(output):
                 code = main(["list", "--root", str(root)])
 
-            self.assertEqual(code, 2)
-            self.assertIn("rebuild", error.getvalue())
+            self.assertEqual(code, 0)
+            self.assertIn("Aucune œuvre indexée", output.getvalue())
+            self.assertEqual(
+                LibraryIndex(root / ".komaforge" / "library.sqlite").schema_version(),
+                1,
+            )
 
     def test_search_returns_only_matching_local_works(self):
         with tempfile.TemporaryDirectory() as temp:

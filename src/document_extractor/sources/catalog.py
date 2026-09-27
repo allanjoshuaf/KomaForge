@@ -30,12 +30,28 @@ def _require_iso_date(value: str | None, field_name: str) -> None:
 
 
 class SourceStatus(str, Enum):
-    """Operational confidence of a source shipped with KomaForge."""
+    """Compatibility confidence backed by the current regression baseline."""
 
     VALIDATED = "validated"
     DEGRADED = "degraded"
     EXPERIMENTAL = "experimental"
     OFFLINE = "offline"
+
+
+class SourceIntegration(str, Enum):
+    """How a source is connected to the extraction core."""
+
+    SPECIALIZED = "specialized"
+    GENERIC = "generic"
+
+
+class SourceAccess(str, Enum):
+    """Access conditions observed independently from compatibility."""
+
+    FULL = "full"
+    SOURCE_LIMITED = "source_limited"
+    SESSION_DEPENDENT = "session_dependent"
+    VARIABLE = "variable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +63,8 @@ class SourceMetadata:
     version: str
     status: SourceStatus
     status_reason: str
+    integration: SourceIntegration = SourceIntegration.SPECIALIZED
+    access: SourceAccess = SourceAccess.FULL
     family_ids: tuple[str, ...] = ()
     last_verified: str | None = None
 
@@ -57,6 +75,10 @@ class SourceMetadata:
         if not isinstance(self.status, SourceStatus):
             raise ValueError("status must be a SourceStatus")
         _require_text(self.status_reason, "status reason")
+        if not isinstance(self.integration, SourceIntegration):
+            raise ValueError("integration must be a SourceIntegration")
+        if not isinstance(self.access, SourceAccess):
+            raise ValueError("access must be a SourceAccess")
         if not isinstance(self.family_ids, tuple):
             raise ValueError("family_ids must be a tuple")
         for family_id in self.family_ids:
@@ -93,6 +115,8 @@ class SourceCandidate:
     status_reason: str
     adapter_id: str
     family_ids: tuple[str, ...]
+    integration: SourceIntegration = SourceIntegration.GENERIC
+    access: SourceAccess = SourceAccess.FULL
     last_verified: str | None = None
 
     def __post_init__(self) -> None:
@@ -105,6 +129,10 @@ class SourceCandidate:
         _require_text(self.status_reason, "status reason")
         _require_text(self.adapter_id, "adapter id")
         _require_text_tuple(self.family_ids, "family id")
+        if not isinstance(self.integration, SourceIntegration):
+            raise ValueError("integration must be a SourceIntegration")
+        if not isinstance(self.access, SourceAccess):
+            raise ValueError("access must be a SourceAccess")
         _require_iso_date(self.last_verified, "last_verified")
 
 
@@ -142,22 +170,22 @@ BUILTIN_SOURCE_CANDIDATES = (
         name="SushiScan",
         languages=("fr",),
         domains=("sushiscan.net",),
-        status=SourceStatus.EXPERIMENTAL,
-        status_reason="live baseline works through the generic adapter but the site may change",
+        status=SourceStatus.VALIDATED,
+        status_reason="241/241 live baseline validated through the generic adapter",
         adapter_id="generic-web",
         family_ids=("vertical-images",),
-        last_verified="2026-09-27",
+        last_verified="2026-09-28",
     ),
     SourceCandidate(
         id="mangareader-pro",
         name="MangaReader.pro",
         languages=("en",),
         domains=("mangareader.pro", "www.mangareader.pro"),
-        status=SourceStatus.EXPERIMENTAL,
-        status_reason="live baseline works through the generic adapter with transient loading",
+        status=SourceStatus.VALIDATED,
+        status_reason="complete live baseline validated through the generic adapter",
         adapter_id="generic-web",
         family_ids=("vertical-images",),
-        last_verified="2026-09-27",
+        last_verified="2026-09-28",
     ),
 )
 
@@ -174,4 +202,6 @@ def metadata_for(adapter: object) -> SourceMetadata:
         version="unversioned",
         status=SourceStatus.EXPERIMENTAL,
         status_reason="metadata not declared by this adapter",
+        integration=SourceIntegration.GENERIC,
+        access=SourceAccess.VARIABLE,
     )

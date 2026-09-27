@@ -195,7 +195,8 @@ les scripts et l’automatisation.
 
 ## Bibliothèque locale
 
-KomaForge peut reconstruire un index SQLite à partir des manifestes déjà présents.
+KomaForge construit automatiquement un index SQLite à partir des manifestes déjà
+présents lorsqu’il manque. Chaque extraction réussie actualise ensuite cet index.
 Les manifestes restent la source de vérité : l’index peut être supprimé et recréé à
 tout moment, sans modifier les livres ni les archives.
 
@@ -229,6 +230,7 @@ Les opérations différées utilisent une seconde base, indépendante de l’ind
 ```powershell
 komaforge jobs add "https://votre-site.com/document" --action inspect
 komaforge jobs add "https://votre-site.com/oeuvre" --action download --format cbz --chapters "1-5"
+komaforge jobs add "https://votre-site.com/oeuvre" --action update
 komaforge jobs list
 komaforge jobs run-next
 komaforge jobs retry IDENTIFIANT
@@ -239,10 +241,11 @@ La file accepte `inspect`, `download` et `update`. Elle conserve l’état et le
 de tentatives après un redémarrage, mais refuse les URL contenant des identifiants,
 des jetons temporaires ou une session de lecteur eBooks. Une URL produit stable est
 requise afin qu’aucun secret de session ne soit écrit dans SQLite.
-`run-next` exécute seulement les travaux `inspect` et `download` avec le moteur
-existant. Les travaux `update` restent en attente tant que la comparaison des
-parties propres à la source n’est pas disponible; ils ne sont jamais transformés
-silencieusement en téléchargement complet.
+`run-next` exécute les trois types de travaux avec le moteur existant. Une mise à
+jour inspecte la publication, compare ses parties au manifeste indexé et place
+uniquement les nouvelles parties dans la file de téléchargement. Une partie déjà
+en attente ou en cours n’est pas ajoutée une seconde fois. Si la publication n’est
+pas encore dans la bibliothèque, la vérification échoue explicitement.
 
 Les adaptateurs disponibles et leurs capacités peuvent être interrogés sans ouvrir
 de navigateur :
@@ -252,18 +255,23 @@ komaforge sources list
 komaforge sources list --status validated
 komaforge sources list --status degraded
 komaforge sources list --status experimental
+komaforge sources list --integration generic
+komaforge sources list --access session_dependent
 komaforge sources families
 komaforge sources candidates
 komaforge sources match "https://global.manga-up.com/manga/126"
 ```
 
-`list` publie pour chaque adaptateur sa langue, ses domaines, sa version, ses
-capacités et son état : `validated`, `degraded`, `experimental` ou `offline`.
+`list` sépare désormais trois informations qui ne signifient pas la même chose :
+la compatibilité (`validated`, `degraded`, `experimental` ou `offline`),
+l’intégration (`specialized` ou `generic`) et l’accès observé (`full`,
+`source_limited`, `session_dependent` ou `variable`).
 `families` garde séparées les stratégies réutilisables (lecteur paginé, vertical,
 document direct ou parties sélectionnables). `candidates` liste les sites déjà
-observés avec le fallback mais qui n’ont pas encore d’adaptateur spécialisé; ils ne
-sont donc jamais confondus avec les sources validées. La date du dernier contrôle
-live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.
+observés avec le fallback mais qui n’ont pas encore d’adaptateur spécialisé.
+SushiScan et MangaReader.pro peuvent ainsi être marqués compatibles et validés tout
+en restant honnêtement décrits comme des intégrations génériques. La date du dernier
+contrôle live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.
 La commande `match` montre clairement
 si l’URL utilise une source spécialisée ou le fallback web générique. Elle ne
 contacte pas le site et ne masque donc jamais l’échec ultérieur d’un adaptateur

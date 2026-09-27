@@ -15,7 +15,7 @@ from ..models import (
     Publication,
 )
 from ..paths import canonical_source_identity, clean_publication_title
-from .catalog import SourceMetadata, SourceStatus
+from .catalog import SourceAccess, SourceMetadata, SourceStatus
 from .contracts import (
     MatchContext,
     MatchResult,
@@ -107,6 +107,7 @@ class MangaUpSource:
         version="1",
         status=SourceStatus.VALIDATED,
         status_reason="catalog discovery and source-limited coverage are regression-tested",
+        access=SourceAccess.SOURCE_LIMITED,
         family_ids=("paginated-images",),
         last_verified="2026-09-27",
     )

@@ -2644,6 +2644,7 @@ def run(args) -> int:
                     )
                 )
             if args.inspect:
+                args.inspection_manifest = manifest
                 if completed:
                     print(rt(language, "inspection_complete"))
                 else:
@@ -2690,6 +2691,17 @@ def run(args) -> int:
                     if key in record:
                         manifest[key] = record[key]
             write_json(manifest_path, manifest)
+            if completed:
+                try:
+                    from .library import LibraryIndex
+
+                    library_index = LibraryIndex(
+                        args.output_root / ".komaforge" / "library.sqlite"
+                    )
+                    library_index.rebuild(args.output_root)
+                    print(rt(language, "library_updated", value=library_index.path))
+                except (OSError, RuntimeError, ValueError) as exc:
+                    print(rt(language, "library_update_failed", value=type(exc).__name__))
             if completed and args.output_format != "images" and work_dir.exists():
                 remove_validated_work_directory(work_dir, output_dir)
             print(rt(language, "manifest", value=manifest_path))

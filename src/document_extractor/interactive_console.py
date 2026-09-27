@@ -33,12 +33,15 @@ PLATFORM_MESSAGES = {
         "sources_title": "Sources et compatibilité",
         "sources_adapters": "Adaptateurs disponibles",
         "sources_families": "Familles de lecteurs",
-        "sources_candidates": "Sites expérimentaux",
+        "sources_candidates": "Sites génériques validés",
         "sources_match": "Identifier la source d’une URL",
         "back": "Retour au menu principal",
         "submenu_invalid": "Choix invalide.",
         "url": "URL",
         "status": "État",
+        "compatibility": "Compatibilité",
+        "integration": "Intégration",
+        "access": "Accès",
         "domains": "Domaines",
         "capabilities": "Capacités",
         "last_verified": "Dernière vérification",
@@ -96,7 +99,7 @@ PLATFORM_MESSAGES = {
         "chapters": "Parties",
         "created": "Travail ajouté",
         "recovered": "Travaux récupérés",
-        "nothing_run": "Aucun travail inspect ou download en attente.",
+        "nothing_run": "Aucun travail inspect, download ou update en attente.",
     },
     "en": {
         "top_sources": "Sources and compatibility",
@@ -109,12 +112,15 @@ PLATFORM_MESSAGES = {
         "sources_title": "Sources and compatibility",
         "sources_adapters": "Available adapters",
         "sources_families": "Reader families",
-        "sources_candidates": "Experimental sites",
+        "sources_candidates": "Validated generic sites",
         "sources_match": "Identify the source for a URL",
         "back": "Back to the main menu",
         "submenu_invalid": "Invalid choice.",
         "url": "URL",
         "status": "Status",
+        "compatibility": "Compatibility",
+        "integration": "Integration",
+        "access": "Access",
         "domains": "Domains",
         "capabilities": "Capabilities",
         "last_verified": "Last verified",
@@ -172,7 +178,7 @@ PLATFORM_MESSAGES = {
         "chapters": "Parts",
         "created": "Job added",
         "recovered": "Recovered jobs",
-        "nothing_run": "No pending inspect or download job.",
+        "nothing_run": "No pending inspect, download, or update job.",
     },
     "ru": {
         "top_sources": "Источники и совместимость",
@@ -185,12 +191,15 @@ PLATFORM_MESSAGES = {
         "sources_title": "Источники и совместимость",
         "sources_adapters": "Доступные адаптеры",
         "sources_families": "Типы читалок",
-        "sources_candidates": "Экспериментальные сайты",
+        "sources_candidates": "Проверенные универсальные сайты",
         "sources_match": "Определить источник по URL",
         "back": "Назад в главное меню",
         "submenu_invalid": "Неверный выбор.",
         "url": "URL",
         "status": "Статус",
+        "compatibility": "Совместимость",
+        "integration": "Интеграция",
+        "access": "Доступ",
         "domains": "Домены",
         "capabilities": "Возможности",
         "last_verified": "Последняя проверка",
@@ -248,7 +257,7 @@ PLATFORM_MESSAGES = {
         "chapters": "Части",
         "created": "Задание добавлено",
         "recovered": "Восстановлено заданий",
-        "nothing_run": "Нет ожидающих проверок или загрузок.",
+        "nothing_run": "Нет ожидающих проверок, загрузок или обновлений.",
     },
     "zh": {
         "top_sources": "来源与兼容性",
@@ -261,12 +270,15 @@ PLATFORM_MESSAGES = {
         "sources_title": "来源与兼容性",
         "sources_adapters": "可用适配器",
         "sources_families": "阅读器类型",
-        "sources_candidates": "实验性网站",
+        "sources_candidates": "已验证的通用网站",
         "sources_match": "识别 URL 来源",
         "back": "返回主菜单",
         "submenu_invalid": "选择无效。",
         "url": "URL",
         "status": "状态",
+        "compatibility": "兼容性",
+        "integration": "集成方式",
+        "access": "访问条件",
         "domains": "域名",
         "capabilities": "能力",
         "last_verified": "上次验证",
@@ -324,7 +336,7 @@ PLATFORM_MESSAGES = {
         "chapters": "部分",
         "created": "已添加任务",
         "recovered": "已恢复任务",
-        "nothing_run": "没有等待中的检查或下载任务。",
+        "nothing_run": "没有等待中的检查、下载或更新任务。",
     },
 }
 
@@ -352,10 +364,10 @@ def _show_sources(ui: TerminalUI) -> None:
         capabilities = ", ".join(
             name for name, enabled in source["capabilities"].items() if enabled
         )
-        kind = _text(ui, "specialized" if source["specialized"] else "fallback")
         ui.item(
-            f"{source['name']} · {source['status']}",
-            f"{kind} · {', '.join(source['domains'])} · {capabilities} · "
+            f"{source['name']} · {source['compatibility']}",
+            f"{source['integration']} · {source['access']} · "
+            f"{', '.join(source['domains'])} · {capabilities} · "
             f"{source['last_verified'] or _text(ui, 'never')}",
         )
 
@@ -373,7 +385,8 @@ def _show_candidates(ui: TerminalUI) -> None:
     ui.section(_text(ui, "sources_candidates"))
     for candidate in candidate_records():
         ui.item(
-            f"{candidate['name']} · {candidate['status']}",
+            f"{candidate['name']} · {candidate['compatibility']}",
+            f"{candidate['integration']} · {candidate['access']} · "
             f"{', '.join(candidate['domains'])} · {candidate['adapter_id']} · "
             f"{candidate['last_verified'] or _text(ui, 'never')}",
         )
@@ -387,7 +400,9 @@ def _match_source(ui: TerminalUI) -> None:
     source = describe_source(route.adapter, specialized=route.specialized)
     ui.section(_text(ui, "route"))
     ui.key_value(_text(ui, "route"), source["name"])
-    ui.key_value(_text(ui, "status"), source["status"])
+    ui.key_value(_text(ui, "compatibility"), source["compatibility"])
+    ui.key_value(_text(ui, "integration"), source["integration"])
+    ui.key_value(_text(ui, "access"), source["access"])
     ui.key_value(_text(ui, "domains"), ", ".join(source["domains"]))
     ui.key_value(_text(ui, "confidence"), route.match.confidence.value)
     ui.key_value(_text(ui, "capabilities"), route.match.reason or "—")
@@ -419,15 +434,23 @@ def sources_menu(ui: TerminalUI) -> None:
             ui.error(str(exc))
 
 
-def _library_ready(ui: TerminalUI, index: LibraryIndex) -> bool:
+def _library_ready(ui: TerminalUI, index: LibraryIndex, root: Path) -> bool:
     if index.schema_version() == SCHEMA_VERSION:
         return True
-    ui.notice(_text(ui, "library_missing"), "warning")
-    return False
+    summary = index.rebuild(root)
+    ui.notice(_text(ui, "library_rebuild"), "success")
+    ui.key_value(_text(ui, "works"), summary.works)
+    ui.key_value(_text(ui, "publications"), summary.publications)
+    return True
 
 
-def _show_library_status(ui: TerminalUI, index: LibraryIndex, state: LibraryState) -> None:
-    if not _library_ready(ui, index):
+def _show_library_status(
+    ui: TerminalUI,
+    index: LibraryIndex,
+    state: LibraryState,
+    root: Path,
+) -> None:
+    if not _library_ready(ui, index, root):
         return
     status = index.status()
     ui.section(_text(ui, "library_status"))
@@ -500,7 +523,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
             return
         try:
             if choice == "1":
-                _show_library_status(ui, index, state)
+                _show_library_status(ui, index, state, library_root)
             elif choice == "2":
                 summary = index.rebuild(library_root)
                 ui.notice(_text(ui, "library_rebuild"), "success")
@@ -508,31 +531,31 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                 ui.key_value(_text(ui, "publications"), summary.publications)
                 ui.key_value(_text(ui, "parts"), summary.parts)
                 ui.key_value(_text(ui, "resources"), summary.resources)
-            elif choice == "3" and _library_ready(ui, index):
+            elif choice == "3" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_list"))
                 _show_works(ui, index.list_works())
-            elif choice == "4" and _library_ready(ui, index):
+            elif choice == "4" and _library_ready(ui, index, library_root):
                 query = ui.prompt(_text(ui, "query"))
                 ui.section(_text(ui, "library_search"))
                 _show_works(ui, index.search_works(query))
-            elif choice == "5" and _library_ready(ui, index):
+            elif choice == "5" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_publications"))
                 _show_publications(ui, index.list_publications())
-            elif choice == "6" and _library_ready(ui, index):
+            elif choice == "6" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_tracked"))
                 _show_tracked(ui, service)
-            elif choice == "7" and _library_ready(ui, index):
+            elif choice == "7" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 service.track(publication_id)
                 ui.notice(_text(ui, "library_track"), "success")
-            elif choice == "8" and _library_ready(ui, index):
+            elif choice == "8" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 removed = state.untrack(publication_id)
                 ui.notice(
                     _text(ui, "library_untrack"),
                     "success" if removed else "warning",
                 )
-            elif choice == "9" and _library_ready(ui, index):
+            elif choice == "9" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 part_id = ui.prompt(_text(ui, "part_id"))
                 position = int(ui.prompt(_text(ui, "position")))

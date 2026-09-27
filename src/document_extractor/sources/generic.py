@@ -28,7 +28,7 @@ from ..models import (
     ResourceKind,
 )
 from ..paths import canonical_source_identity, clean_publication_title
-from .catalog import SourceMetadata, SourceStatus
+from .catalog import SourceAccess, SourceIntegration, SourceMetadata, SourceStatus
 from .contracts import (
     MatchContext,
     MatchResult,
@@ -88,6 +88,8 @@ class GenericWebSource:
         version="1",
         status=SourceStatus.EXPERIMENTAL,
         status_reason="coverage depends on the structure exposed by each unknown site",
+        integration=SourceIntegration.GENERIC,
+        access=SourceAccess.VARIABLE,
         family_ids=(
             "paginated-images",
             "vertical-images",
