@@ -195,11 +195,11 @@ Les manifestes restent la source de vérité : l’index peut être supprimé et
 tout moment, sans modifier les livres ni les archives.
 
 ```powershell
-komaforge-library rebuild
-komaforge-library list
-komaforge-library track IDENTIFIANT_PUBLICATION
-komaforge-library tracked
-komaforge-library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
+komaforge library rebuild
+komaforge library list
+komaforge library track IDENTIFIANT_PUBLICATION
+komaforge library tracked
+komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
 ```
 
 Par défaut, la commande lit `C:\Extractions\Manga` sous Windows et place l’index
@@ -218,10 +218,10 @@ identifiants nécessaires sont disponibles avec `komaforge-library list --json`.
 Les opérations différées utilisent une seconde base, indépendante de l’index :
 
 ```powershell
-komaforge-jobs add "https://votre-site.com/document" --action inspect
-komaforge-jobs list
-komaforge-jobs run-next
-komaforge-jobs cancel IDENTIFIANT
+komaforge jobs add "https://votre-site.com/document" --action inspect
+komaforge jobs list
+komaforge jobs run-next
+komaforge jobs cancel IDENTIFIANT
 ```
 
 La file accepte `inspect`, `download` et `update`. Elle conserve l’état et le nombre
@@ -237,13 +237,15 @@ Les adaptateurs disponibles et leurs capacités peuvent être interrogés sans o
 de navigateur :
 
 ```powershell
-komaforge-sources list
-komaforge-sources match "https://global.manga-up.com/manga/126"
+komaforge sources list
+komaforge sources match "https://global.manga-up.com/manga/126"
 ```
 
 La commande `match` montre clairement si l’URL utilise une source spécialisée ou
 le fallback web générique. Elle ne contacte pas le site et ne masque donc jamais
 l’échec ultérieur d’un adaptateur reconnu.
+Les commandes séparées `komaforge-library`, `komaforge-jobs` et
+`komaforge-sources` restent installées pour les scripts existants.
 
 Pour analyser d'abord une URL sans enregistrer les pages :
 

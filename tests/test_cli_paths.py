@@ -12,6 +12,7 @@ from unittest.mock import patch
 from document_extractor.cli import (
     build_parser,
     interactive_setup,
+    main,
     normalize_url_input,
     parse_args,
 )
@@ -441,6 +442,16 @@ class PortablePathTests(unittest.TestCase):
     def test_historical_pdf_alias_maps_to_pdf_format(self):
         args = parse_args(["https://example.test/book/7", "--pdf"])
         self.assertEqual(args.output_format, "pdf")
+
+    def test_main_dispatches_platform_commands_before_url_parsing(self):
+        output = StringIO()
+
+        with patch("sys.stdout", output):
+            code = main(["sources", "match", "https://example.test/book", "--json"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["id"], "generic-web")
 
 
 if __name__ == "__main__":

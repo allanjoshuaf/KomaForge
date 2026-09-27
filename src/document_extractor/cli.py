@@ -250,7 +250,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
+    values = list(sys.argv[1:] if argv is None else argv)
+    if values:
+        command = values[0].casefold()
+        if command == "library":
+            from .library_cli import main as library_main
+
+            return library_main(values[1:])
+        if command == "jobs":
+            from .jobs_cli import main as jobs_main
+
+            return jobs_main(values[1:])
+        if command == "sources":
+            from .source_cli import main as source_main
+
+            return source_main(values[1:])
+
+    args = parse_args(values)
     from .engine import run
 
     ui = TerminalUI(args.language)
