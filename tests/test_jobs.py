@@ -103,6 +103,18 @@ class JobQueueTests(unittest.TestCase):
             self.assertEqual(cancelled.status, JobStatus.CANCELLED)
             self.assertIsNone(queue.claim_next())
 
+    def test_claim_can_skip_actions_without_reordering_them(self):
+        with tempfile.TemporaryDirectory() as temp:
+            queue = JobQueue(Path(temp) / "jobs.sqlite")
+            update = queue.enqueue(JobAction.UPDATE, "https://example.test/update")
+            inspect = queue.enqueue(JobAction.INSPECT, "https://example.test/inspect")
+
+            claimed = queue.claim_next((JobAction.INSPECT, JobAction.DOWNLOAD))
+
+            self.assertEqual(claimed.id, inspect.id)
+            self.assertEqual(queue.list()[0].id, update.id)
+            self.assertEqual(queue.list()[0].status, JobStatus.PENDING)
+
 
 if __name__ == "__main__":
     unittest.main()

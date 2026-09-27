@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .job_executor import JobExecutor
 from .jobs import Job, JobAction, JobQueue, JobStatus
 from .paths import default_output_root
 
@@ -58,6 +59,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     recover.add_argument("--json", action="store_true", dest="as_json")
     _add_queue_path(recover)
+
+    run_next = commands.add_parser(
+        "run-next",
+        help="Exécute le prochain travail inspect ou download",
+    )
+    run_next.add_argument("--json", action="store_true", dest="as_json")
+    _add_queue_path(run_next)
     return parser
 
 
@@ -102,6 +110,16 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"{count} travail/travaux replacé(s) en attente")
             return 0
+        if args.command == "run-next":
+            job = JobExecutor(queue).run_next()
+            if job is None:
+                if args.as_json:
+                    print(json.dumps({"executed": False}, sort_keys=True))
+                else:
+                    print("Aucun travail inspect ou download en attente.")
+                return 2
+            _print_job(job, args.as_json)
+            return 0 if job.status is JobStatus.COMPLETED else 1
 
         status = JobStatus(args.status) if args.status else None
         jobs = queue.list(status)

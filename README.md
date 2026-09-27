@@ -214,6 +214,7 @@ Les opérations différées utilisent une seconde base, indépendante de l’ind
 ```powershell
 komaforge-jobs add "https://votre-site.com/document" --action inspect
 komaforge-jobs list
+komaforge-jobs run-next
 komaforge-jobs cancel IDENTIFIANT
 ```
 
@@ -221,6 +222,10 @@ La file accepte `inspect`, `download` et `update`. Elle conserve l’état et le
 de tentatives après un redémarrage, mais refuse les URL contenant des identifiants,
 des jetons temporaires ou une session de lecteur eBooks. Une URL produit stable est
 requise afin qu’aucun secret de session ne soit écrit dans SQLite.
+`run-next` exécute seulement les travaux `inspect` et `download` avec le moteur
+existant. Les travaux `update` restent en attente tant que la comparaison des
+parties propres à la source n’est pas disponible; ils ne sont jamais transformés
+silencieusement en téléchargement complet.
 
 Pour analyser d'abord une URL sans enregistrer les pages :
 

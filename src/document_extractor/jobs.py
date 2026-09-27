@@ -230,19 +230,42 @@ class JobQueue:
                 ).fetchall()
         return tuple(_row_to_job(row) for row in rows)
 
-    def claim_next(self) -> Job | None:
+    def claim_next(
+        self,
+        actions: tuple[JobAction, ...] | None = None,
+    ) -> Job | None:
+        if actions is not None and (
+            not actions
+            or not all(isinstance(action, JobAction) for action in actions)
+        ):
+            raise ValueError("actions must be a non-empty tuple of JobAction values")
         self._prepare()
         with _open_connection(self.path) as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
-                """
-                SELECT * FROM jobs
-                WHERE status = ?
-                ORDER BY created_at, id
-                LIMIT 1
-                """,
-                (JobStatus.PENDING.value,),
-            ).fetchone()
+            if actions is None:
+                row = connection.execute(
+                    """
+                    SELECT * FROM jobs
+                    WHERE status = ?
+                    ORDER BY created_at, id
+                    LIMIT 1
+                    """,
+                    (JobStatus.PENDING.value,),
+                ).fetchone()
+            else:
+                placeholders = ",".join("?" for _ in actions)
+                row = connection.execute(
+                    f"""
+                    SELECT * FROM jobs
+                    WHERE status = ? AND action IN ({placeholders})
+                    ORDER BY created_at, id
+                    LIMIT 1
+                    """,
+                    (
+                        JobStatus.PENDING.value,
+                        *(action.value for action in actions),
+                    ),
+                ).fetchone()
             if row is None:
                 connection.commit()
                 return None
