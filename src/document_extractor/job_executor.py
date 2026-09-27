@@ -171,3 +171,16 @@ class JobExecutor:
         if exit_code == 0:
             return self.queue.complete(job.id)
         return self.queue.fail(job.id, f"execution returned exit code {exit_code}")
+
+    def run_all(self, *, limit: int = 100) -> tuple[Job, ...]:
+        """Drain executable jobs, including downloads created by update checks."""
+
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        completed: list[Job] = []
+        for _ in range(limit):
+            job = self.run_next()
+            if job is None:
+                break
+            completed.append(job)
+        return tuple(completed)

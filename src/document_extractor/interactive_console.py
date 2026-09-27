@@ -93,6 +93,7 @@ PLATFORM_MESSAGES = {
         "jobs_download": "Ajouter un téléchargement",
         "jobs_update": "Ajouter une vérification de mise à jour",
         "jobs_run": "Exécuter le prochain travail",
+        "jobs_run_all": "Exécuter toute la file",
         "jobs_retry": "Relancer un travail échoué",
         "jobs_cancel": "Annuler un travail en attente",
         "jobs_recover": "Récupérer les travaux interrompus",
@@ -176,6 +177,7 @@ PLATFORM_MESSAGES = {
         "jobs_download": "Add a download",
         "jobs_update": "Add an update check",
         "jobs_run": "Run the next job",
+        "jobs_run_all": "Run the entire queue",
         "jobs_retry": "Retry a failed job",
         "jobs_cancel": "Cancel a pending job",
         "jobs_recover": "Recover interrupted jobs",
@@ -259,6 +261,7 @@ PLATFORM_MESSAGES = {
         "jobs_download": "Добавить загрузку",
         "jobs_update": "Добавить проверку обновлений",
         "jobs_run": "Выполнить следующее задание",
+        "jobs_run_all": "Выполнить всю очередь",
         "jobs_retry": "Повторить ошибочное задание",
         "jobs_cancel": "Отменить ожидающее задание",
         "jobs_recover": "Восстановить прерванные задания",
@@ -342,6 +345,7 @@ PLATFORM_MESSAGES = {
         "jobs_download": "添加下载",
         "jobs_update": "添加更新检查",
         "jobs_run": "执行下一个任务",
+        "jobs_run_all": "执行整个队列",
         "jobs_retry": "重试失败任务",
         "jobs_cancel": "取消等待任务",
         "jobs_recover": "恢复中断任务",
@@ -695,12 +699,13 @@ def jobs_menu(
         ui.option(3, _text(ui, "jobs_download"))
         ui.option(4, _text(ui, "jobs_update"))
         ui.option(5, _text(ui, "jobs_run"))
-        ui.option(6, _text(ui, "jobs_retry"))
-        ui.option(7, _text(ui, "jobs_cancel"))
-        ui.option(8, _text(ui, "jobs_recover"))
-        ui.option(9, _text(ui, "back"))
+        ui.option(6, _text(ui, "jobs_run_all"))
+        ui.option(7, _text(ui, "jobs_retry"))
+        ui.option(8, _text(ui, "jobs_cancel"))
+        ui.option(9, _text(ui, "jobs_recover"))
+        ui.option(10, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "9":
+        if choice == "10":
             return
         try:
             if choice == "1":
@@ -720,12 +725,19 @@ def jobs_menu(
                     tone = "success" if job.status is JobStatus.COMPLETED else "warning"
                     ui.notice(f"{job.id} · {job.status.value}", tone)
             elif choice == "6":
+                jobs = JobExecutor(queue).run_all()
+                failures = sum(job.status is JobStatus.FAILED for job in jobs)
+                ui.notice(
+                    f"{_text(ui, 'jobs_run_all')} : {len(jobs)}",
+                    "warning" if failures else "success",
+                )
+            elif choice == "7":
                 job = queue.retry(ui.prompt(_text(ui, "job_id")))
                 ui.notice(f"{job.id} · {job.status.value}", "success")
-            elif choice == "7":
+            elif choice == "8":
                 job = queue.cancel(ui.prompt(_text(ui, "job_id")))
                 ui.notice(f"{job.id} · {job.status.value}", "success")
-            elif choice == "8":
+            elif choice == "9":
                 recovered = queue.recover_interrupted()
                 ui.notice(f"{_text(ui, 'recovered')} : {recovered}", "success")
             else:

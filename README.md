@@ -243,6 +243,7 @@ komaforge jobs add "https://votre-site.com/oeuvre" --action download --format cb
 komaforge jobs add "https://votre-site.com/oeuvre" --action update
 komaforge jobs list
 komaforge jobs run-next
+komaforge jobs run-all --limit 100
 komaforge jobs retry IDENTIFIANT
 komaforge jobs cancel IDENTIFIANT
 ```
@@ -256,6 +257,9 @@ jour inspecte la publication, compare ses parties au manifeste indexé et place
 uniquement les nouvelles parties dans la file de téléchargement. Une partie déjà
 en attente ou en cours n’est pas ajoutée une seconde fois. Si la publication n’est
 pas encore dans la bibliothèque, la vérification échoue explicitement.
+`run-all` traite la file en série, y compris les téléchargements créés par une
+vérification de mise à jour, avec une limite explicite qui empêche une boucle sans
+fin de monopoliser l’application.
 
 Les adaptateurs disponibles et leurs capacités peuvent être interrogés sans ouvrir
 de navigateur :

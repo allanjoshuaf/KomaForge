@@ -83,6 +83,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_next.add_argument("--json", action="store_true", dest="as_json")
     _add_queue_path(run_next)
+    run_all = commands.add_parser(
+        "run-all",
+        help="Exécute les travaux en attente jusqu’à épuisement ou limite",
+    )
+    run_all.add_argument("--limit", type=int, choices=range(1, 1001), default=100)
+    run_all.add_argument("--json", action="store_true", dest="as_json")
+    _add_queue_path(run_all)
     return parser
 
 
@@ -167,6 +174,22 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             _print_job(job, args.as_json)
             return 0 if job.status is JobStatus.COMPLETED else 1
+        if args.command == "run-all":
+            jobs = JobExecutor(queue).run_all(limit=args.limit)
+            payload = {
+                "executed": len(jobs),
+                "completed": sum(job.status is JobStatus.COMPLETED for job in jobs),
+                "failed": sum(job.status is JobStatus.FAILED for job in jobs),
+                "job_ids": [job.id for job in jobs],
+            }
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                print(
+                    f"{payload['executed']} travail/travaux exécuté(s) : "
+                    f"{payload['completed']} terminé(s), {payload['failed']} échoué(s)."
+                )
+            return 0 if payload["failed"] == 0 else 1
 
         status = JobStatus(args.status) if args.status else None
         jobs = queue.list(status)

@@ -72,7 +72,7 @@ class InteractiveConsoleTests(unittest.TestCase):
                     "2",
                     "https://example.test/book/1",
                     "1",
-                    "9",
+                    "10",
                     "1",
                 )
             )

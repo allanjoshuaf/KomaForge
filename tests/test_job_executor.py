@@ -192,6 +192,39 @@ class JobExecutorTests(unittest.TestCase):
             self.assertEqual(result.status, JobStatus.COMPLETED)
             self.assertEqual(len(queue.list()), 1)
 
+    def test_run_all_drains_executable_jobs_in_order(self):
+        with tempfile.TemporaryDirectory() as temp:
+            queue = JobQueue(Path(temp) / "jobs.sqlite")
+            queue.enqueue(JobAction.INSPECT, "https://example.test/one")
+            queue.enqueue(JobAction.DOWNLOAD, "https://example.test/two")
+            calls = []
+
+            jobs = JobExecutor(
+                queue,
+                lambda args: calls.append(args.url) or 0,
+            ).run_all()
+
+            self.assertEqual(len(jobs), 2)
+            self.assertEqual(
+                calls,
+                ["https://example.test/one", "https://example.test/two"],
+            )
+            self.assertTrue(all(job.status is JobStatus.COMPLETED for job in jobs))
+
+    def test_run_all_limit_leaves_remaining_jobs_pending(self):
+        with tempfile.TemporaryDirectory() as temp:
+            queue = JobQueue(Path(temp) / "jobs.sqlite")
+            queue.enqueue(JobAction.DOWNLOAD, "https://example.test/one")
+            queue.enqueue(JobAction.DOWNLOAD, "https://example.test/two")
+
+            jobs = JobExecutor(queue, lambda _args: 0).run_all(limit=1)
+
+            self.assertEqual(len(jobs), 1)
+            self.assertEqual(
+                [job.status for job in queue.list()],
+                [JobStatus.COMPLETED, JobStatus.PENDING],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

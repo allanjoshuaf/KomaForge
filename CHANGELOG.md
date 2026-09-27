@@ -18,6 +18,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   enregistrée pour les lectures commencées ;
 - toutes les publications suivies, ou une seule publication choisie, peuvent être
   placées en file de mise à jour sans créer de vérifications actives en doublon ;
+- la file peut être exécutée entièrement en série avec une limite de sécurité, y
+  compris les téléchargements ajoutés par les vérifications de mise à jour ;
 - le menu interactif donne maintenant accès aux sources, aux familles de lecteurs,
   au diagnostic d’URL, à la bibliothèque locale et à la file d’attente persistante ;
 - la bibliothèque peut être reconstruite, parcourue, recherchée et suivie sans
