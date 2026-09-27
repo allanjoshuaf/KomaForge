@@ -323,6 +323,31 @@ class LibraryIndexTests(unittest.TestCase):
                 [item["title"] for item in index.list_downloaded()],
                 ["Duplicate"],
             )
+            self.assertEqual(index.artifact_paths(publication["id"]), (artifact,))
+
+    def test_artifact_paths_cannot_escape_the_publication_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            manifest = root / "One" / "pages.json"
+            outside = root / "outside.cbz"
+            outside.parent.mkdir(parents=True, exist_ok=True)
+            outside.write_bytes(b"archive")
+            write_manifest(
+                manifest,
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["artifact"] = {"path": "../outside.cbz"}
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            index = LibraryIndex(database)
+            index.rebuild(root)
+            publication = index.list_publications()[0]
+
+            with self.assertRaisesRegex(ValueError, "escapes"):
+                index.artifact_paths(publication["id"])
 
     def test_duplicate_prefers_explicit_coverage_over_legacy_complete_claim(self):
         with tempfile.TemporaryDirectory() as temp:

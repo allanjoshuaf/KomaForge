@@ -303,12 +303,14 @@ def _artifact_integrity(manifest_path: Path, payload: dict) -> tuple[str, int]:
         path = Path(str(raw_path))
         if not path.is_absolute():
             path = manifest_path.parent / path
-        if not path.is_file():
+        if not path.exists():
             return "missing", 0
         expected = str(artifact.get("sha256") or "").strip()
         if not expected:
             all_hashed = False
             continue
+        if not path.is_file():
+            return "invalid", 0
         if _sha256(path).casefold() != expected.casefold():
             return "mismatch", 0
     if all_hashed:
@@ -574,6 +576,36 @@ class LibraryIndex:
             if canonical_source_identity(str(row["source_url"])) == identity:
                 return self.load_publication(str(row["id"]))
         return None
+
+    def artifact_paths(self, publication_id: str) -> tuple[Path, ...]:
+        """Resolve declared artifacts without allowing a manifest to escape its folder."""
+
+        if not self.path.is_file():
+            return ()
+        with _open_connection(self.path) as connection:
+            row = connection.execute(
+                "SELECT manifest_path FROM publications WHERE id = ?",
+                (publication_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(publication_id)
+        manifest_path = Path(str(row["manifest_path"])).resolve()
+        root = manifest_path.parent
+        payload = _read_manifest(manifest_path)
+        paths: list[Path] = []
+        for artifact in _artifact_records(payload):
+            raw_path = artifact.get("path") or artifact.get("file")
+            if not raw_path:
+                continue
+            path = Path(str(raw_path))
+            if not path.is_absolute():
+                path = root / path
+            resolved = path.resolve()
+            if not resolved.is_relative_to(root):
+                raise ValueError("artifact path escapes its publication folder")
+            if resolved.exists() and resolved not in paths:
+                paths.append(resolved)
+        return tuple(paths)
 
     def status(self) -> dict:
         if not self.path.is_file():

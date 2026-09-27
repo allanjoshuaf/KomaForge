@@ -47,7 +47,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             root = Path(temp)
             stream = StringIO()
             ui = TerminalUI("fr", stream=stream)
-            answers = iter(("4", "11", "1", "15", "1"))
+            answers = iter(("4", "12", "1", "16", "1"))
 
             with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
                 mode = interactive_hub(ui, root=root)

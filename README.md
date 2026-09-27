@@ -207,6 +207,7 @@ komaforge library list
 komaforge library search "titre"
 komaforge library publications --json
 komaforge library downloaded
+komaforge library open IDENTIFIANT_PUBLICATION
 komaforge library status
 komaforge library track IDENTIFIANT_PUBLICATION
 komaforge library tracked
@@ -241,6 +242,9 @@ terminée et sa dernière position enregistrée, globalement ou pour une publica
 doublon lorsqu’une vérification identique est déjà en attente ou en cours.
 `downloaded` ne retient que les artefacts encore présents et `history` résout la
 progression persistante vers les titres de publication et de partie actuels.
+`open` confie le premier artefact disponible à l’application locale associée à son
+format. Le chemin doit rester dans le dossier de la publication ; un ancien
+manifeste qui tente d’en sortir est refusé.
 
 Les opérations différées utilisent une seconde base, indépendante de l’index :
 

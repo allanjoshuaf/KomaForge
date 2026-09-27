@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from argparse import Namespace
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -43,6 +46,15 @@ class ReadingHistoryView:
 
 
 ExtractionRunner = Callable[[Namespace], int]
+ArtifactOpener = Callable[[Path], None]
+
+
+def _default_artifact_opener(path: Path) -> None:
+    if os.name == "nt":
+        os.startfile(path)  # type: ignore[attr-defined]
+        return
+    command = ["open", str(path)] if sys.platform == "darwin" else ["xdg-open", str(path)]
+    subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 class LibraryService:
@@ -225,6 +237,19 @@ class LibraryService:
             )
             active.add(identity)
         return tuple(queued)
+
+    def open_artifact(
+        self,
+        publication_id: str,
+        *,
+        opener: ArtifactOpener | None = None,
+    ) -> Path:
+        paths = self.index.artifact_paths(publication_id)
+        if not paths:
+            raise FileNotFoundError("publication has no available local artifact")
+        path = paths[0]
+        (opener or _default_artifact_opener)(path)
+        return path
 
     def history(self) -> tuple[ReadingHistoryView, ...]:
         """Return known reading progress with the most recent item first."""

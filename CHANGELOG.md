@@ -29,6 +29,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   sans total connu ne peut plus masquer un diagnostic récent `11/62` ;
 - les anciens titres d’interstitiel tels que `Just a moment` sont réparés depuis
   l’URL stable au lieu d’apparaître dans la bibliothèque ;
+- un téléchargement peut être ouvert depuis la commande ou le menu Bibliothèque ;
+  les chemins d’artefact sortant du dossier de publication sont refusés ;
 - le menu interactif donne maintenant accès aux sources, aux familles de lecteurs,
   au diagnostic d’URL, à la bibliothèque locale et à la file d’attente persistante ;
 - la bibliothèque peut être reconstruite, parcourue, recherchée et suivie sans

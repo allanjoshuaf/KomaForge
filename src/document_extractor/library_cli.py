@@ -84,6 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Liste les publications dont l’artefact est disponible",
     )
     _add_paths(downloaded)
+    open_parser = subparsers.add_parser(
+        "open",
+        help="Ouvre l’artefact local d’une publication",
+    )
+    open_parser.add_argument("publication_id")
+    _add_paths(open_parser)
     status = subparsers.add_parser("status", help="Résume la santé de la bibliothèque")
     _add_paths(status)
     search = subparsers.add_parser("search", help="Recherche dans la bibliothèque locale")
@@ -398,6 +404,16 @@ def main(argv: list[str] | None = None) -> int:
                         f"{publication['title']} | "
                         f"{publication['artifact_integrity']}"
                     )
+            return 0
+        if args.command == "open":
+            path = LibraryService(
+                index,
+                LibraryState(root / ".komaforge" / "state.sqlite"),
+            ).open_artifact(args.publication_id)
+            if args.as_json:
+                print(json.dumps({"path": str(path)}, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"Ouvert : {path}")
             return 0
         if args.command == "status":
             status = index.status()

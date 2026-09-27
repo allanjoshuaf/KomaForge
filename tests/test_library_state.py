@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -193,6 +194,38 @@ class LibraryStateTests(unittest.TestCase):
             self.assertEqual(history[0].publication.id, publication.id)
             self.assertEqual(history[0].part.id, part.id)
             self.assertEqual(history[0].progress.resource_position, 1)
+
+    def test_open_artifact_uses_the_validated_local_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            manifest = root / "One" / "pages.json"
+            write_manifest(
+                manifest,
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            artifact = manifest.parent / "one.cbz"
+            artifact.write_bytes(b"archive")
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["artifact"] = {"path": artifact.name}
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            service = LibraryService(
+                index,
+                LibraryState(root / ".komaforge" / "state.sqlite"),
+            )
+            publication = index.list_publications()[0]
+            opened = []
+
+            path = service.open_artifact(
+                publication["id"],
+                opener=opened.append,
+            )
+
+            self.assertEqual(path, artifact.resolve())
+            self.assertEqual(opened, [artifact.resolve()])
 
 
 if __name__ == "__main__":
