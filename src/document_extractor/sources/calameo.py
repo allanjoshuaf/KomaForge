@@ -19,6 +19,7 @@ from ..providers import (
     _calameo_book_code,
     discover_provider,
 )
+from .catalog import SourceMetadata, SourceStatus
 from .contracts import (
     MatchContext,
     MatchResult,
@@ -147,6 +148,14 @@ def publication_from_provider(
 class CalameoSource:
     id = "calameo"
     name = "Calameo"
+    metadata = SourceMetadata(
+        languages=("mul",),
+        domains=("calameo.com", "www.calameo.com"),
+        version="1",
+        status=SourceStatus.VALIDATED,
+        status_reason="publication metadata and page coverage are regression-tested",
+        family_ids=("paginated-images",),
+    )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:
         if _calameo_book_code(url) is None:

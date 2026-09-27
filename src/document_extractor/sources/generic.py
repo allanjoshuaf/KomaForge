@@ -28,6 +28,7 @@ from ..models import (
     ResourceKind,
 )
 from ..paths import canonical_source_identity, clean_publication_title
+from .catalog import SourceMetadata, SourceStatus
 from .contracts import (
     MatchContext,
     MatchResult,
@@ -81,6 +82,19 @@ class GenericWebSource:
 
     id = "generic-web"
     name = "Generic Web"
+    metadata = SourceMetadata(
+        languages=("mul",),
+        domains=("*",),
+        version="1",
+        status=SourceStatus.EXPERIMENTAL,
+        status_reason="coverage depends on the structure exposed by each unknown site",
+        family_ids=(
+            "paginated-images",
+            "vertical-images",
+            "direct-document",
+            "selectable-parts",
+        ),
+    )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:
         parsed = urlparse(url)

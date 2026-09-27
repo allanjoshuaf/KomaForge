@@ -15,6 +15,7 @@ from ..models import (
     Publication,
 )
 from ..paths import canonical_source_identity, clean_publication_title
+from .catalog import SourceMetadata, SourceStatus
 from .contracts import (
     MatchContext,
     MatchResult,
@@ -100,6 +101,14 @@ def publication_from_catalog(
 class MangaUpSource:
     id = "manga-up"
     name = "Manga UP"
+    metadata = SourceMetadata(
+        languages=("en",),
+        domains=("global.manga-up.com",),
+        version="1",
+        status=SourceStatus.VALIDATED,
+        status_reason="catalog discovery and source-limited coverage are regression-tested",
+        family_ids=("paginated-images",),
+    )
 
     def __init__(self) -> None:
         self._generic_resources = GenericWebSource()

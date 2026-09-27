@@ -6,11 +6,14 @@ import sys
 
 from .application import resolve_source
 from .sources import (
+    BUILTIN_READER_FAMILIES,
     BrowseCapability,
     GenericWebSource,
     SearchCapability,
+    SourceStatus,
     UpdateCapability,
     build_default_registry,
+    metadata_for,
 )
 
 
@@ -22,6 +25,21 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     listing = commands.add_parser("list", help="Liste les adaptateurs disponibles")
     listing.add_argument("--json", action="store_true", dest="as_json")
+    listing.add_argument(
+        "--status",
+        choices=[status.value for status in SourceStatus],
+        help="Filtre les adaptateurs par état",
+    )
+    families = commands.add_parser(
+        "families",
+        help="Liste les familles de lecteurs réutilisables",
+    )
+    families.add_argument("--json", action="store_true", dest="as_json")
+    families.add_argument(
+        "--status",
+        choices=[status.value for status in SourceStatus],
+        help="Filtre les familles par état",
+    )
     match = commands.add_parser("match", help="Indique la source choisie pour une URL")
     match.add_argument("url")
     match.add_argument("--json", action="store_true", dest="as_json")
@@ -29,11 +47,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _source_payload(adapter, *, specialized: bool) -> dict:
+    metadata = metadata_for(adapter)
     return {
         "id": adapter.id,
         "name": adapter.name,
         "specialized": specialized,
+        "languages": list(metadata.languages),
+        "domains": list(metadata.domains),
+        "version": metadata.version,
+        "status": metadata.status.value,
+        "status_reason": metadata.status_reason,
+        "families": list(metadata.family_ids),
         "capabilities": {
+            "url": True,
+            "publication": True,
+            "parts": True,
+            "resources": True,
             "browse": isinstance(adapter, BrowseCapability),
             "search": isinstance(adapter, SearchCapability),
             "update": isinstance(adapter, UpdateCapability),
@@ -50,11 +79,27 @@ def _sources() -> tuple[dict, ...]:
     return specialized + (_source_payload(GenericWebSource(), specialized=False),)
 
 
+def _families() -> tuple[dict, ...]:
+    return tuple(
+        {
+            "id": family.id,
+            "name": family.name,
+            "status": family.status.value,
+            "description": family.description,
+        }
+        for family in BUILTIN_READER_FAMILIES
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "list":
             sources = _sources()
+            if args.status:
+                sources = tuple(
+                    source for source in sources if source["status"] == args.status
+                )
             if args.as_json:
                 print(json.dumps(sources, ensure_ascii=False, sort_keys=True))
             else:
@@ -67,7 +112,25 @@ def main(argv: list[str] | None = None) -> int:
                     source_type = "spécialisée" if source["specialized"] else "fallback"
                     print(
                         f"{source['id']} | {source['name']} | {source_type} | "
+                        f"{source['status']} | {','.join(source['languages'])} | "
+                        f"{','.join(source['domains'])} | v{source['version']} | "
                         f"{capabilities}"
+                    )
+            return 0
+
+        if args.command == "families":
+            families = _families()
+            if args.status:
+                families = tuple(
+                    family for family in families if family["status"] == args.status
+                )
+            if args.as_json:
+                print(json.dumps(families, ensure_ascii=False, sort_keys=True))
+            else:
+                for family in families:
+                    print(
+                        f"{family['id']} | {family['name']} | "
+                        f"{family['status']} | {family['description']}"
                     )
             return 0
 

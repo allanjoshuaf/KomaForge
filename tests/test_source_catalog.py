@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+import unittest
+
+from document_extractor.sources import (
+    BUILTIN_READER_FAMILIES,
+    GenericWebSource,
+    SourceMetadata,
+    SourceStatus,
+    build_default_registry,
+    metadata_for,
+)
+
+
+class SourceCatalogTests(unittest.TestCase):
+    def test_metadata_rejects_empty_domains(self):
+        with self.assertRaisesRegex(ValueError, "source domain"):
+            SourceMetadata(
+                languages=("fr",),
+                domains=(),
+                version="1",
+                status=SourceStatus.VALIDATED,
+                status_reason="tested",
+            )
+
+    def test_undeclared_external_adapter_is_experimental(self):
+        class ExternalAdapter:
+            pass
+
+        metadata = metadata_for(ExternalAdapter())
+
+        self.assertEqual(metadata.status, SourceStatus.EXPERIMENTAL)
+        self.assertEqual(metadata.version, "unversioned")
+
+    def test_builtin_family_ids_are_unique(self):
+        identifiers = [family.id for family in BUILTIN_READER_FAMILIES]
+
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+
+    def test_builtin_sources_declare_only_known_families(self):
+        family_ids = {family.id for family in BUILTIN_READER_FAMILIES}
+        adapters = (*build_default_registry().all(), GenericWebSource())
+
+        for adapter in adapters:
+            metadata = metadata_for(adapter)
+            with self.subTest(source=adapter.id):
+                self.assertNotEqual(metadata.version, "unversioned")
+                self.assertTrue(set(metadata.family_ids) <= family_ids)
+
+
+if __name__ == "__main__":
+    unittest.main()

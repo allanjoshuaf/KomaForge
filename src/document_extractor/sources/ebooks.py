@@ -20,6 +20,7 @@ from ..models import (
     ResourceKind,
 )
 from ..paths import canonical_source_identity, clean_publication_title
+from .catalog import SourceMetadata, SourceStatus
 from .contracts import (
     MatchContext,
     MatchResult,
@@ -113,6 +114,14 @@ def _coverage_from_candidate(candidate: dict) -> Coverage:
 class EBooksSource:
     id = "ebooks"
     name = "eBooks.com"
+    metadata = SourceMetadata(
+        languages=("mul",),
+        domains=("ebooks.com", "www.ebooks.com", "reader.ebooks.com"),
+        version="1",
+        status=SourceStatus.DEGRADED,
+        status_reason="reader sessions may expose only a limited sample of the publication",
+        family_ids=("direct-document",),
+    )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:
         if not is_ebooks_product_url(url) and not _is_reader_url(url):

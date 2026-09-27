@@ -1,6 +1,13 @@
 """Source adapter contracts and registry."""
 
 from .calameo import CalameoSource
+from .catalog import (
+    BUILTIN_READER_FAMILIES,
+    ReaderFamily,
+    SourceMetadata,
+    SourceStatus,
+    metadata_for,
+)
 from .contracts import (
     BrowseCapability,
     MatchContext,
@@ -33,6 +40,7 @@ def build_default_registry() -> SourceRegistry:
 
 __all__ = [
     "AmbiguousSourceError",
+    "BUILTIN_READER_FAMILIES",
     "BrowseCapability",
     "CalameoSource",
     "DuplicateSourceError",
@@ -41,16 +49,20 @@ __all__ = [
     "MatchContext",
     "MatchResult",
     "MangaUpSource",
+    "ReaderFamily",
     "ResourceSet",
     "SearchCapability",
     "SearchPage",
     "SourceAdapter",
     "SourceMatchError",
+    "SourceMetadata",
     "SourceReference",
     "SourceRegistry",
     "SourceResolution",
     "SourceSession",
+    "SourceStatus",
     "UpdateCapability",
     "UpdateResult",
     "build_default_registry",
+    "metadata_for",
 ]
