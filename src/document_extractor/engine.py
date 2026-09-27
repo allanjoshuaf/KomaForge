@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
+from .application import resolve_source
 from .detection import (
     BLOB_CAPTURE_INIT_SCRIPT,
     ExpectedCount,
@@ -48,6 +49,7 @@ from .formats import (
     remove_validated_work_directory,
     render_pdf_bytes_to_images,
 )
+from .legacy_bridge import normalize_legacy_manifest
 from .paths import (
     choose_title_output_dir,
     ensure_output_dir_is_compatible,
@@ -2155,6 +2157,7 @@ def extract_chapter(
 
 def run(args) -> int:
     language = getattr(args, "language", "fr")
+    source_route = resolve_source(args.url)
     selector = normalize_selector_input(args.selector)
     source_host = (urlparse(args.url).hostname or "").lower()
     allowed_hosts = {
@@ -2621,6 +2624,16 @@ def run(args) -> int:
                     )
                     write_json(manifest_path, manifest)
 
+            manifest["publication"]["chapters"] = chapter_records
+            manifest["publication"]["status"] = (
+                "limited_by_source"
+                if completed and source_limited
+                else "complete"
+                if completed
+                else "incomplete"
+            )
+            normalize_legacy_manifest(manifest, source_route.adapter.id)
+
             if source_limited and structured_catalog:
                 print(
                     rt(
@@ -2637,14 +2650,6 @@ def run(args) -> int:
                     print(rt(language, "inspection_incomplete"))
                 return 0 if completed else 2
 
-            manifest["publication"]["chapters"] = chapter_records
-            manifest["publication"]["status"] = (
-                "limited_by_source"
-                if completed and source_limited
-                else "complete"
-                if completed
-                else "incomplete"
-            )
             if not publication_is_work:
                 record = chapter_records[0]
                 manifest["publication"]["chapters"] = [

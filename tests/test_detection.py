@@ -168,6 +168,73 @@ class ChapterDiscoveryTests(unittest.TestCase):
         self.assertEqual(result, {"url": reader_url, "action": "Preview"})
         self.assertIs(page.removed_callback, page.callback)
 
+    def test_ebooks_product_retries_responsive_preview_controls(self):
+        reader_url = "https://reader.ebooks.com/preview?uid=second-control"
+
+        class FakeControl:
+            def __init__(self, page, selector):
+                self.page = page
+                self.selector = selector
+
+            @property
+            def first(self):
+                return self
+
+            def click(self, **_kwargs):
+                if "second" in self.selector:
+                    self.page.context.pages.append(SimpleNamespace(
+                        url=reader_url,
+                        is_closed=lambda: False,
+                    ))
+
+            def evaluate(self, _script):
+                self.click()
+
+        class FakePage:
+            url = "https://www.ebooks.com/en-us/book/347114076/the-demon-star/"
+            frames = []
+
+            def __init__(self):
+                self.context = SimpleNamespace(pages=[self])
+
+            @staticmethod
+            def evaluate(_script):
+                return [
+                    {"marker": "first", "label": "Preview", "href": ""},
+                    {"marker": "second", "label": "Preview", "href": ""},
+                    {
+                        "marker": "help",
+                        "label": "Read online",
+                        "href": "https://support.ebooks.com/help",
+                    },
+                ]
+
+            def locator(self, selector):
+                return FakeControl(self, selector)
+
+            def on(self, _event, callback):
+                self.callback = callback
+
+            def remove_listener(self, _event, callback):
+                self.removed_callback = callback
+
+            @staticmethod
+            def wait_for_timeout(_milliseconds):
+                return None
+
+            @staticmethod
+            def is_closed():
+                return False
+
+        page = FakePage()
+
+        with patch("document_extractor.detection.time.monotonic") as monotonic:
+            ticks = iter(range(100))
+            monotonic.side_effect = lambda: next(ticks)
+            result = discover_linked_reader(page.context, page)
+
+        self.assertEqual(result, {"url": reader_url, "action": "Preview"})
+
     def test_prefers_a_numbered_page_family_over_reader_noise(self):
         candidates = []
         for index in range(161):
