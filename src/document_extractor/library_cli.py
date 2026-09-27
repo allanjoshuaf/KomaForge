@@ -56,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Liste les œuvres déjà indexées",
     )
     _add_paths(listing)
+    publications = subparsers.add_parser(
+        "publications",
+        help="Liste les publications et leurs identifiants de suivi",
+    )
+    _add_paths(publications)
     search = subparsers.add_parser("search", help="Recherche dans la bibliothèque locale")
     search.add_argument("query")
     _add_paths(search)
@@ -211,6 +216,25 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        if args.command == "publications":
+            publications = index.list_publications()
+            if args.as_json:
+                print(
+                    json.dumps(
+                        list(publications),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
+            elif not publications:
+                print("Aucune publication indexée.")
+            else:
+                for publication in publications:
+                    print(
+                        f"{publication['id']} | {publication['title']} | "
+                        f"{publication['coverage_status'] or 'unknown'}"
+                    )
+            return 0
         works = (
             index.search_works(args.query)
             if args.command == "search"

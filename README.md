@@ -198,6 +198,7 @@ tout moment, sans modifier les livres ni les archives.
 komaforge library rebuild
 komaforge library list
 komaforge library search "titre"
+komaforge library publications --json
 komaforge library track IDENTIFIANT_PUBLICATION
 komaforge library tracked
 komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
@@ -214,7 +215,8 @@ complétude, puis l’intégrité vérifiable de son artefact et enfin sa date. 
 ressources portant des jetons temporaires ne sont pas copiées dans l’index.
 Le suivi et la progression sont conservés séparément dans
 `.komaforge/state.sqlite`; reconstruire `library.sqlite` ne les efface pas. Les
-identifiants nécessaires sont disponibles avec `komaforge-library list --json`.
+identifiants de publication nécessaires au suivi sont disponibles avec
+`komaforge library publications --json`.
 
 Les opérations différées utilisent une seconde base, indépendante de l’index :
 

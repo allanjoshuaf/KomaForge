@@ -162,6 +162,37 @@ class LibraryIndexTests(unittest.TestCase):
 
             self.assertEqual(index.resource_locators(), (None,))
 
+    def test_session_scoped_publication_url_is_canonicalized_in_sqlite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            write_manifest(
+                root / "One" / "pages.json",
+                (
+                    "https://reader.ebooks.com/preview?uid=temporary&reqid=1&"
+                    "bid=347114076&t=2&hash=secret"
+                ),
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            index = LibraryIndex(database)
+
+            index.rebuild(root)
+            publication = index.list_publications()[0]
+
+            self.assertEqual(
+                publication["source_url"],
+                "https://reader.ebooks.com/preview?bid=347114076",
+            )
+            self.assertNotIn("manifest_path", publication)
+            self.assertTrue(
+                all(
+                    marker not in url
+                    for url in index.source_urls()
+                    for marker in ("uid=", "reqid=", "hash=", "t=")
+                )
+            )
+
     def test_search_treats_sql_wildcards_as_literal_text(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "outputs"

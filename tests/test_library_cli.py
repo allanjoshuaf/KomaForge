@@ -117,6 +117,32 @@ class LibraryCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual([item["title"] for item in results], ["One"])
 
+    def test_publications_exposes_the_identifier_required_by_track(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            index = Path(temp) / "library.sqlite"
+            write_manifest(root / "One" / "pages.json")
+            with redirect_stdout(StringIO()):
+                main(["rebuild", "--root", str(root), "--index", str(index)])
+            output = StringIO()
+
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "publications",
+                        "--root",
+                        str(root),
+                        "--index",
+                        str(index),
+                        "--json",
+                    ]
+                )
+            publications = json.loads(output.getvalue())
+
+            self.assertEqual(code, 0)
+            self.assertTrue(publications[0]["id"].startswith("publication-"))
+            self.assertEqual(publications[0]["title"], "One")
+
     def test_track_progress_and_tracked_views(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "outputs"

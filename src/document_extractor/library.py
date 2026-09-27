@@ -16,6 +16,7 @@ from typing import Iterator
 from .application import resolve_source
 from .legacy_bridge import normalize_legacy_manifest
 from .models import Part, Publication, Resource, Work
+from .paths import canonical_source_identity
 
 
 SCHEMA_VERSION = 1
@@ -64,6 +65,15 @@ def _coverage_values(item) -> tuple[str | None, int | None, int | None, str | No
         coverage.expected,
         coverage.unit,
     )
+
+
+def _safe_source_url(value: str) -> str:
+    """Remove session-scoped query values before an URL reaches SQLite."""
+
+    canonical = canonical_source_identity(value)
+    if not canonical:
+        raise ValueError("publication source URL cannot be empty")
+    return canonical
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -197,7 +207,7 @@ def _insert_part(
             part.kind.value,
             part.position,
             part.number,
-            part.source_url,
+            _safe_source_url(part.source_url),
             part.metadata.get("legacy_status"),
             status,
             available,
@@ -230,7 +240,7 @@ def _insert_publication(
             work.id,
             publication.source_id,
             publication.title,
-            publication.source_url,
+            _safe_source_url(publication.source_url),
             str(candidate.manifest_path),
             candidate.created_at,
             candidate.artifact_integrity,
@@ -487,6 +497,24 @@ class LibraryIndex:
         for row in rows:
             yield dict(row)
 
+    def list_publications(self) -> tuple[dict, ...]:
+        """Return the stable public view without internal manifest paths."""
+
+        if not self.path.is_file():
+            return ()
+        with _open_connection(self.path) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    id, work_id, source_id, title, source_url, created_at,
+                    artifact_integrity, legacy_status, coverage_status,
+                    coverage_available, coverage_expected, coverage_unit
+                FROM publications
+                ORDER BY title COLLATE NOCASE, id
+                """
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
+
     def load_publication(self, publication_id: str) -> Publication | None:
         if not self.path.is_file():
             return None
@@ -525,3 +553,17 @@ class LibraryIndex:
                 "SELECT locator FROM resources ORDER BY part_id, position"
             ).fetchall()
         return tuple(row["locator"] for row in rows)
+
+    def source_urls(self) -> tuple[str, ...]:
+        if not self.path.is_file():
+            return ()
+        with _open_connection(self.path) as connection:
+            rows = connection.execute(
+                """
+                SELECT source_url FROM publications
+                UNION ALL
+                SELECT source_url FROM parts
+                ORDER BY source_url
+                """
+            ).fetchall()
+        return tuple(row["source_url"] for row in rows)
