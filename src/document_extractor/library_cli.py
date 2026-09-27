@@ -79,6 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Liste les publications et leurs identifiants de suivi",
     )
     _add_paths(publications)
+    downloaded = subparsers.add_parser(
+        "downloaded",
+        help="Liste les publications dont l’artefact est disponible",
+    )
+    _add_paths(downloaded)
     status = subparsers.add_parser("status", help="Résume la santé de la bibliothèque")
     _add_paths(status)
     search = subparsers.add_parser("search", help="Recherche dans la bibliothèque locale")
@@ -99,6 +104,9 @@ def build_parser() -> argparse.ArgumentParser:
     unread.add_argument("--publication-id")
     _add_paths(unread)
     _add_state_path(unread)
+    history = subparsers.add_parser("history", help="Affiche l’historique de lecture")
+    _add_paths(history)
+    _add_state_path(history)
     update = subparsers.add_parser(
         "update",
         help="Met les publications suivies en file de vérification",
@@ -185,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
             "untrack",
             "tracked",
             "unread",
+            "history",
             "update",
             "progress",
         }:
@@ -288,6 +297,32 @@ def main(argv: list[str] | None = None) -> int:
                         )
                 return 0
 
+            if args.command == "history":
+                history = service.history()
+                payload = [
+                    {
+                        "publication_id": item.publication.id,
+                        "publication_title": item.publication.title,
+                        "part_id": item.part.id,
+                        "part_title": item.part.title,
+                        "resource_position": item.progress.resource_position,
+                        "completed": item.progress.completed,
+                        "updated_at": item.progress.updated_at,
+                    }
+                    for item in history
+                ]
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                elif not payload:
+                    print("Aucun historique de lecture.")
+                else:
+                    for item in payload:
+                        print(
+                            f"{item['publication_title']} | {item['part_title']} | "
+                            f"position {item['resource_position']} | {item['updated_at']}"
+                        )
+                return 0
+
             if args.command == "update":
                 queue_path = (
                     args.queue.expanduser().resolve()
@@ -349,6 +384,19 @@ def main(argv: list[str] | None = None) -> int:
                     print(
                         f"{publication['id']} | {publication['title']} | "
                         f"{publication['coverage_status'] or 'unknown'}"
+                    )
+            return 0
+        if args.command == "downloaded":
+            publications = index.list_downloaded()
+            if args.as_json:
+                print(json.dumps(list(publications), ensure_ascii=False, sort_keys=True))
+            elif not publications:
+                print("Aucune publication téléchargée.")
+            else:
+                for publication in publications:
+                    print(
+                        f"{publication['title']} | "
+                        f"{publication['artifact_integrity']}"
                     )
             return 0
         if args.command == "status":

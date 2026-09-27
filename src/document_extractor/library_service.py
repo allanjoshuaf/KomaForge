@@ -35,6 +35,13 @@ class UnreadPartView:
     resource_position: int
 
 
+@dataclass(frozen=True, slots=True)
+class ReadingHistoryView:
+    publication: Publication
+    part: Part
+    progress: ReadingProgress
+
+
 ExtractionRunner = Callable[[Namespace], int]
 
 
@@ -218,3 +225,20 @@ class LibraryService:
             )
             active.add(identity)
         return tuple(queued)
+
+    def history(self) -> tuple[ReadingHistoryView, ...]:
+        """Return known reading progress with the most recent item first."""
+
+        history: list[ReadingHistoryView] = []
+        for progress in reversed(self.state.progress()):
+            publication = self.index.load_publication(progress.publication_id)
+            if publication is None:
+                continue
+            part = next(
+                (item for item in publication.parts if item.id == progress.part_id),
+                None,
+            )
+            if part is None:
+                continue
+            history.append(ReadingHistoryView(publication, part, progress))
+        return tuple(history)

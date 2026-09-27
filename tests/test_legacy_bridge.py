@@ -27,6 +27,27 @@ def manifest(record: dict, *, availability: dict | None = None) -> dict:
 
 
 class LegacyBridgeTests(unittest.TestCase):
+    def test_interstitial_title_is_recovered_from_the_stable_source_url(self):
+        data = manifest(
+            {
+                "index": 1,
+                "number": "1",
+                "title": "Just a moment",
+                "kind": "document",
+                "source_url": "https://sushiscan.net/chainsaw-man-volume-1/",
+                "status": "complete",
+                "detected": 1,
+                "expected": 1,
+            }
+        )
+        data["source_url"] = "https://sushiscan.net/chainsaw-man-volume-1/"
+        data["publication"]["title"] = "Just a moment"
+
+        work = normalize_legacy_manifest(data, "generic-web")
+
+        self.assertEqual(work.title, "Chainsaw Man Volume 1")
+        self.assertEqual(work.publications[0].title, "Chainsaw Man Volume 1")
+
     def test_flat_historical_manifest_uses_its_directory_title_hint(self):
         work = normalize_legacy_manifest(
             {
@@ -127,6 +148,34 @@ class LegacyBridgeTests(unittest.TestCase):
         publication_coverage = work.publications[0].coverage
         self.assertEqual(publication_coverage.status, CoverageStatus.INCOMPLETE)
         self.assertEqual(publication_coverage.missing, 51)
+
+    def test_single_document_inherits_top_level_coverage_diagnostics(self):
+        data = manifest(
+            {
+                "index": 1,
+                "number": "1",
+                "title": "Example",
+                "kind": "document",
+                "source_url": "https://example.test/book",
+                "status": "incomplete",
+                "page_count": 11,
+            }
+        )
+        data.update(
+            {
+                "detected": 11,
+                "expected": 62,
+                "expected_source": "EPUB navigation document",
+                "resource_unit": "epub_document",
+            }
+        )
+
+        work = normalize_legacy_manifest(data, "ebooks")
+
+        coverage = work.publications[0].parts[0].coverage
+        self.assertEqual(coverage.status, CoverageStatus.INCOMPLETE)
+        self.assertEqual(coverage.available, 11)
+        self.assertEqual(coverage.expected, 62)
 
     def test_incomplete_publication_with_unknown_total_never_claims_complete(self):
         work = normalize_legacy_manifest(

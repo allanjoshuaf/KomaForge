@@ -20,6 +20,15 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   placées en file de mise à jour sans créer de vérifications actives en doublon ;
 - la file peut être exécutée entièrement en série avec une limite de sécurité, y
   compris les téléchargements ajoutés par les vérifications de mise à jour ;
+- les listes locales incluent maintenant les téléchargements encore disponibles et
+  l’historique de lecture résolu vers les publications actuelles ;
+- le tableau de bord affiche aussi le nombre de parties non lues et les travaux en
+  attente ou échoués ;
+- la reconstruction préfère les manifestes possédant une couverture explicite et
+  regroupe les anciennes sessions eBooks avec leur fiche produit ; un vieux succès
+  sans total connu ne peut plus masquer un diagnostic récent `11/62` ;
+- les anciens titres d’interstitiel tels que `Just a moment` sont réparés depuis
+  l’URL stable au lieu d’apparaître dans la bibliothèque ;
 - le menu interactif donne maintenant accès aux sources, aux familles de lecteurs,
   au diagnostic d’URL, à la bibliothèque locale et à la file d’attente persistante ;
 - la bibliothèque peut être reconstruite, parcourue, recherchée et suivie sans

@@ -179,6 +179,21 @@ class LibraryStateTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 service.queue_updates(queue, "missing-publication")
 
+    def test_history_resolves_progress_back_to_publication_and_part(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, _, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            part = publication.parts[0]
+            service.track(publication.id)
+            service.record_progress(publication.id, part.id, 1)
+
+            history = service.history()
+
+            self.assertEqual(len(history), 1)
+            self.assertEqual(history[0].publication.id, publication.id)
+            self.assertEqual(history[0].part.id, part.id)
+            self.assertEqual(history[0].progress.resource_position, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

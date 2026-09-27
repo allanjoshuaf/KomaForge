@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+import re
 import sqlite3
 import tempfile
 from contextlib import contextmanager
@@ -12,10 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterator
+from urllib.parse import parse_qs, urlparse
 
 from .application import resolve_source
 from .legacy_bridge import normalize_legacy_manifest
-from .models import Part, Publication, Resource, Work
+from .models import Confidence, Part, Publication, Resource, Work
 from .paths import canonical_source_identity
 
 
@@ -325,6 +327,22 @@ def _status_rank(candidate: _PublicationCandidate) -> int:
     }.get(status, 1)
 
 
+def _coverage_rank(candidate: _PublicationCandidate) -> int:
+    coverages = (
+        candidate.publication.coverage,
+        *(part.coverage for part in candidate.publication.parts),
+    )
+    proven = [coverage for coverage in coverages if coverage is not None]
+    if any(
+        coverage.expected is not None and coverage.confidence is Confidence.HIGH
+        for coverage in proven
+    ):
+        return 3
+    if any(coverage.expected is not None for coverage in proven):
+        return 2
+    return 1
+
+
 def _created_at_rank(value: str | None) -> float:
     if not value:
         return float("-inf")
@@ -336,11 +354,26 @@ def _created_at_rank(value: str | None) -> float:
 
 def _candidate_sort_key(candidate: _PublicationCandidate) -> tuple:
     return (
+        -_coverage_rank(candidate),
         -_status_rank(candidate),
         -candidate.artifact_integrity_rank,
         -_created_at_rank(candidate.created_at),
         str(candidate.manifest_path).casefold(),
     )
+
+
+def _publication_group_key(publication: Publication) -> str:
+    """Join historical eBooks reader URLs to their stable product identity."""
+
+    if publication.source_id != "ebooks":
+        return publication.id
+    parsed = urlparse(publication.source_url)
+    query = parse_qs(parsed.query)
+    book_id = (query.get("bid") or [None])[0]
+    if book_id is None:
+        match = re.search(r"(?i)/book/([0-9]+)(?:/|$)", parsed.path)
+        book_id = match.group(1) if match else None
+    return f"ebooks-book-{book_id}" if book_id else publication.id
 
 
 def _load_candidates(
@@ -368,7 +401,9 @@ def _load_candidates(
                 artifact_integrity=integrity,
                 artifact_integrity_rank=integrity_rank,
             )
-            by_publication.setdefault(publication.id, []).append(candidate)
+            by_publication.setdefault(
+                _publication_group_key(publication), []
+            ).append(candidate)
 
     selected = tuple(
         min(candidates, key=_candidate_sort_key)
@@ -521,6 +556,15 @@ class LibraryIndex:
                 """
             ).fetchall()
         return tuple(dict(row) for row in rows)
+
+    def list_downloaded(self) -> tuple[dict, ...]:
+        """Return publications whose declared artifacts are present locally."""
+
+        return tuple(
+            publication
+            for publication in self.list_publications()
+            if publication["artifact_integrity"] in {"verified", "present"}
+        )
 
     def find_publication_by_url(self, source_url: str) -> Publication | None:
         """Load the indexed publication matching a stable source URL."""

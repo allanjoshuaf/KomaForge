@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import PurePosixPath
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .models import (
     Confidence,
@@ -22,6 +23,21 @@ from .paths import canonical_source_identity
 
 class LegacyManifestError(ValueError):
     pass
+
+
+_INTERSTITIAL_TITLES = {
+    "attention required",
+    "checking your browser",
+    "just a moment",
+}
+
+
+def _recover_legacy_title(title: str, source_url: str) -> str:
+    if title.casefold().strip(" .!-") not in _INTERSTITIAL_TITLES:
+        return title
+    slug = PurePosixPath(unquote(urlparse(source_url).path).rstrip("/")).name
+    recovered = " ".join(part for part in re.split(r"[-_.]+", slug) if part)
+    return recovered.title() if recovered else title
 
 
 def _stable_id(prefix: str, value: str) -> str:
@@ -177,9 +193,24 @@ def normalize_legacy_manifest(
     title = str(publication_data.get("title") or "").strip()
     if not title:
         raise LegacyManifestError("manifest publication title is missing")
+    title = _recover_legacy_title(title, source_url)
     records = publication_data.get("chapters") or []
     if not isinstance(records, list):
         raise LegacyManifestError("manifest chapters must be a list")
+    if len(records) == 1 and isinstance(records[0], dict):
+        record = dict(records[0])
+        for key in (
+            "detected",
+            "expected",
+            "expected_source",
+            "resource_count",
+            "resource_unit",
+            "pages",
+            "artifact",
+        ):
+            if key not in record and key in manifest:
+                record[key] = manifest[key]
+        records = [record]
     selected_count = int(publication_data.get("selected_part_count") or 0)
     if selected_count != len(records):
         raise LegacyManifestError(

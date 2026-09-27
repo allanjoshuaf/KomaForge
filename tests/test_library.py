@@ -319,6 +319,83 @@ class LibraryIndexTests(unittest.TestCase):
             self.assertEqual(summary.publications, 1)
             self.assertEqual(Path(publication["manifest_path"]), winner)
             self.assertEqual(publication["artifact_integrity"], "verified")
+            self.assertEqual(
+                [item["title"] for item in index.list_downloaded()],
+                ["Duplicate"],
+            )
+
+    def test_duplicate_prefers_explicit_coverage_over_legacy_complete_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            source_url = "https://example.test/coverage"
+            old = root / "Old" / "pages.json"
+            current = root / "Current" / "pages.json"
+            write_manifest(
+                old,
+                source_url,
+                "Old claim",
+                "https://cdn.example.test/old.webp",
+            )
+            old_payload = json.loads(old.read_text(encoding="utf-8"))
+            old_payload["publication"]["chapters"][0].pop("expected")
+            old.write_text(json.dumps(old_payload), encoding="utf-8")
+            write_manifest(
+                current,
+                source_url,
+                "Current evidence",
+                "https://cdn.example.test/current.webp",
+            )
+            current_payload = json.loads(current.read_text(encoding="utf-8"))
+            current_payload["publication"]["status"] = "incomplete"
+            current_payload["publication"]["chapters"][0].update(
+                {"status": "incomplete", "detected": 1, "expected": 2}
+            )
+            current.write_text(json.dumps(current_payload), encoding="utf-8")
+            index = LibraryIndex(database)
+
+            index.rebuild(root)
+            publication = tuple(index.iter_publications())[0]
+
+            self.assertEqual(publication["title"], "Current evidence")
+            self.assertEqual(publication["coverage_status"], "incomplete")
+
+    def test_ebooks_reader_and_product_urls_share_one_library_publication(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            old = root / "Old" / "pages.json"
+            current = root / "Current" / "pages.json"
+            write_manifest(
+                old,
+                "https://reader.ebooks.com/preview?bid=347114076&token=old",
+                "Old preview",
+                "https://cdn.example.test/old.webp",
+            )
+            old_payload = json.loads(old.read_text(encoding="utf-8"))
+            old_payload["publication"]["chapters"][0].pop("expected")
+            old.write_text(json.dumps(old_payload), encoding="utf-8")
+            write_manifest(
+                current,
+                "https://www.ebooks.com/en-us/book/347114076/the-demon-star/author/",
+                "The Demon Star",
+                "https://cdn.example.test/current.webp",
+            )
+            current_payload = json.loads(current.read_text(encoding="utf-8"))
+            current_payload["publication"]["status"] = "incomplete"
+            current_payload["publication"]["chapters"][0].update(
+                {"status": "incomplete", "detected": 11, "expected": 62}
+            )
+            current.write_text(json.dumps(current_payload), encoding="utf-8")
+            index = LibraryIndex(database)
+
+            summary = index.rebuild(root)
+            publications = index.list_publications()
+
+            self.assertEqual(summary.duplicate_manifests, 1)
+            self.assertEqual(len(publications), 1)
+            self.assertEqual(publications[0]["title"], "The Demon Star")
+            self.assertEqual(publications[0]["coverage_status"], "incomplete")
 
 
 if __name__ == "__main__":

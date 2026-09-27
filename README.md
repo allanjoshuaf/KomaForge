@@ -206,6 +206,7 @@ komaforge library add "https://votre-site.com/oeuvre" --format original
 komaforge library list
 komaforge library search "titre"
 komaforge library publications --json
+komaforge library downloaded
 komaforge library status
 komaforge library track IDENTIFIANT_PUBLICATION
 komaforge library tracked
@@ -213,6 +214,7 @@ komaforge library unread
 komaforge library unread --publication-id IDENTIFIANT_PUBLICATION
 komaforge library update
 komaforge library update --publication-id IDENTIFIANT_PUBLICATION
+komaforge library history
 komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
 ```
 
@@ -222,8 +224,11 @@ une autre bibliothèque et `--index` un autre fichier SQLite. L’option `--json
 fournit une sortie stable pour une future interface ou un autre outil local.
 
 Lorsqu’une même source possède plusieurs anciens manifestes, la reconstruction
-garde une seule publication canonique. Elle privilégie d’abord son état de
-complétude, puis l’intégrité vérifiable de son artefact et enfin sa date. Les URL de
+garde une seule publication canonique. Elle privilégie d’abord la couverture
+explicitement prouvée, puis son état, l’intégrité vérifiable de son artefact et sa
+date. Les anciennes URL de lecteur eBooks sont rapprochées des fiches produit par
+leur identifiant de livre, ce qui empêche un ancien aperçu déclaré complet de
+masquer un diagnostic plus récent comme `11/62`. Les URL de
 ressources portant des jetons temporaires ne sont pas copiées dans l’index.
 Le suivi et la progression sont conservés séparément dans
 `.komaforge/state.sqlite`; reconstruire `library.sqlite` ne les efface pas. Les
@@ -234,6 +239,8 @@ si l’extraction est refusée ou incomplète. La vue `unread` liste chaque part
 terminée et sa dernière position enregistrée, globalement ou pour une publication.
 `library update` ajoute une vérification pour chaque publication suivie sans créer de
 doublon lorsqu’une vérification identique est déjà en attente ou en cours.
+`downloaded` ne retient que les artefacts encore présents et `history` résout la
+progression persistante vers les titres de publication et de partie actuels.
 
 Les opérations différées utilisent une seconde base, indépendante de l’index :
 
