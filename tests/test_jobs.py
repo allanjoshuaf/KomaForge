@@ -93,6 +93,19 @@ class JobQueueTests(unittest.TestCase):
             self.assertEqual(recovered_count, 1)
             self.assertEqual(queue.list()[0].status, JobStatus.PENDING)
 
+    def test_failed_job_can_be_requeued_explicitly(self):
+        with tempfile.TemporaryDirectory() as temp:
+            queue = JobQueue(Path(temp) / "jobs.sqlite")
+            job = queue.enqueue(JobAction.INSPECT, "https://example.test/book")
+            queue.claim_next()
+            failed = queue.fail(job.id, "temporary failure")
+
+            pending = queue.retry(failed.id)
+
+            self.assertEqual(pending.status, JobStatus.PENDING)
+            self.assertEqual(pending.attempts, 1)
+            self.assertIsNone(pending.last_error)
+
     def test_cancelled_job_is_not_claimed(self):
         with tempfile.TemporaryDirectory() as temp:
             queue = JobQueue(Path(temp) / "jobs.sqlite")

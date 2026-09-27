@@ -65,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     cancel.add_argument("--json", action="store_true", dest="as_json")
     _add_queue_path(cancel)
 
+    retry = commands.add_parser("retry", help="Replace un travail échoué en attente")
+    retry.add_argument("job_id")
+    retry.add_argument("--json", action="store_true", dest="as_json")
+    _add_queue_path(retry)
+
     recover = commands.add_parser(
         "recover",
         help="Replace en attente les travaux interrompus pendant leur exécution",
@@ -139,6 +144,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "cancel":
             job = queue.cancel(args.job_id)
+            _print_job(job, args.as_json)
+            return 0
+        if args.command == "retry":
+            job = queue.retry(args.job_id)
             _print_job(job, args.as_json)
             return 0
         if args.command == "recover":

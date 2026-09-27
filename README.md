@@ -225,6 +225,7 @@ komaforge jobs add "https://votre-site.com/document" --action inspect
 komaforge jobs add "https://votre-site.com/oeuvre" --action download --format cbz --chapters "1-5"
 komaforge jobs list
 komaforge jobs run-next
+komaforge jobs retry IDENTIFIANT
 komaforge jobs cancel IDENTIFIANT
 ```
 

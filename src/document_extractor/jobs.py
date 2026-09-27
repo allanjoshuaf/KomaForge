@@ -358,6 +358,13 @@ class JobQueue:
             to_status=JobStatus.CANCELLED,
         )
 
+    def retry(self, job_id: str) -> Job:
+        return self._transition(
+            job_id,
+            from_statuses=(JobStatus.FAILED,),
+            to_status=JobStatus.PENDING,
+        )
+
     def recover_interrupted(self) -> int:
         if not self.path.is_file():
             return 0

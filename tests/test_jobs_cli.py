@@ -102,6 +102,28 @@ class JobsCliTests(unittest.TestCase):
             self.assertIn("stable publication URL", error.getvalue())
             self.assertFalse(queue.exists())
 
+    def test_retry_requeues_a_failed_job(self):
+        with tempfile.TemporaryDirectory() as temp:
+            queue_path = Path(temp) / "jobs.sqlite"
+            from document_extractor.jobs import JobAction, JobQueue
+
+            queue = JobQueue(queue_path)
+            job = queue.enqueue(JobAction.INSPECT, "https://example.test/book")
+            queue.claim_next()
+            queue.fail(job.id, "temporary")
+            output = StringIO()
+
+            with redirect_stdout(output):
+                code = main(
+                    ["retry", job.id, "--queue", str(queue_path), "--json"]
+                )
+            retried = json.loads(output.getvalue())
+
+            self.assertEqual(code, 0)
+            self.assertEqual(retried["status"], "pending")
+            self.assertEqual(retried["attempts"], 1)
+            self.assertIsNone(retried["last_error"])
+
 
 if __name__ == "__main__":
     unittest.main()
