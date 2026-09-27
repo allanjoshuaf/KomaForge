@@ -1,5 +1,6 @@
 """Source adapter contracts and registry."""
 
+from .calameo import CalameoSource
 from .contracts import (
     BrowseCapability,
     MatchContext,
@@ -22,9 +23,16 @@ from .registry import (
     SourceResolution,
 )
 
+
+def build_default_registry() -> SourceRegistry:
+    """Build the registry of specialized sources shipped with KomaForge."""
+
+    return SourceRegistry((CalameoSource(),))
+
 __all__ = [
     "AmbiguousSourceError",
     "BrowseCapability",
+    "CalameoSource",
     "DuplicateSourceError",
     "GenericWebSource",
     "MatchContext",
@@ -40,4 +48,5 @@ __all__ = [
     "SourceSession",
     "UpdateCapability",
     "UpdateResult",
+    "build_default_registry",
 ]
