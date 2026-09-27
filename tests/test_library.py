@@ -118,6 +118,10 @@ class LibraryIndexTests(unittest.TestCase):
                 [item["title"] for item in index.search_works("tw")],
                 ["Two"],
             )
+            status = index.status()
+            self.assertEqual(status["works"], 2)
+            self.assertEqual(status["publications"], 2)
+            self.assertEqual(status["coverage"], {"complete": 2})
             publication_row = next(index.iter_publications())
             loaded = index.load_publication(publication_row["id"])
             self.assertEqual(loaded.id, publication_row["id"])

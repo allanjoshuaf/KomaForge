@@ -199,6 +199,7 @@ komaforge library rebuild
 komaforge library list
 komaforge library search "titre"
 komaforge library publications --json
+komaforge library status
 komaforge library track IDENTIFIANT_PUBLICATION
 komaforge library tracked
 komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12

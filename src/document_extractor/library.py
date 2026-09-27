@@ -515,6 +515,43 @@ class LibraryIndex:
             ).fetchall()
         return tuple(dict(row) for row in rows)
 
+    def status(self) -> dict:
+        if not self.path.is_file():
+            return {
+                "works": 0,
+                "publications": 0,
+                "parts": 0,
+                "resources": 0,
+                "artifact_integrity": {},
+                "coverage": {},
+                "legacy_status": {},
+            }
+        with _open_connection(self.path) as connection:
+            counts = {
+                table: int(
+                    connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                )
+                for table in ("works", "publications", "parts", "resources")
+            }
+
+            def grouped(column: str) -> dict:
+                rows = connection.execute(
+                    f"""
+                    SELECT COALESCE({column}, 'unknown') AS value, COUNT(*) AS count
+                    FROM publications
+                    GROUP BY COALESCE({column}, 'unknown')
+                    ORDER BY value
+                    """
+                ).fetchall()
+                return {row["value"]: int(row["count"]) for row in rows}
+
+            return {
+                **counts,
+                "artifact_integrity": grouped("artifact_integrity"),
+                "coverage": grouped("coverage_status"),
+                "legacy_status": grouped("legacy_status"),
+            }
+
     def load_publication(self, publication_id: str) -> Publication | None:
         if not self.path.is_file():
             return None

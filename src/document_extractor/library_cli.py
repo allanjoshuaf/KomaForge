@@ -61,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Liste les publications et leurs identifiants de suivi",
     )
     _add_paths(publications)
+    status = subparsers.add_parser("status", help="Résume la santé de la bibliothèque")
+    _add_paths(status)
     search = subparsers.add_parser("search", help="Recherche dans la bibliothèque locale")
     search.add_argument("query")
     _add_paths(search)
@@ -234,6 +236,19 @@ def main(argv: list[str] | None = None) -> int:
                         f"{publication['id']} | {publication['title']} | "
                         f"{publication['coverage_status'] or 'unknown'}"
                     )
+            return 0
+        if args.command == "status":
+            status = index.status()
+            if args.as_json:
+                print(json.dumps(status, ensure_ascii=False, sort_keys=True))
+            else:
+                print(
+                    f"{status['works']} œuvre(s), {status['publications']} publication(s), "
+                    f"{status['parts']} partie(s), {status['resources']} ressource(s)"
+                )
+                print(f"Intégrité : {status['artifact_integrity']}")
+                print(f"Couverture : {status['coverage']}")
+                print(f"État des manifestes : {status['legacy_status']}")
             return 0
         works = (
             index.search_works(args.query)
