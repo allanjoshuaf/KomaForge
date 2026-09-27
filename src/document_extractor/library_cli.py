@@ -56,6 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Liste les œuvres déjà indexées",
     )
     _add_paths(listing)
+    search = subparsers.add_parser("search", help="Recherche dans la bibliothèque locale")
+    search.add_argument("query")
+    _add_paths(search)
     track = subparsers.add_parser("track", help="Ajoute une publication à la bibliothèque")
     track.add_argument("publication_id")
     _add_paths(track)
@@ -208,7 +211,12 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        _print_works(index.list_works(), args.as_json)
+        works = (
+            index.search_works(args.query)
+            if args.command == "search"
+            else index.list_works()
+        )
+        _print_works(works, args.as_json)
         return 0
     except (KeyError, OSError, RuntimeError, ValueError) as exc:
         print(f"Erreur de bibliothèque : {exc}", file=sys.stderr)

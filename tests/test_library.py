@@ -114,6 +114,10 @@ class LibraryIndexTests(unittest.TestCase):
                 [item["title"] for item in index.list_works()],
                 ["One", "Two"],
             )
+            self.assertEqual(
+                [item["title"] for item in index.search_works("tw")],
+                ["Two"],
+            )
             publication_row = next(index.iter_publications())
             loaded = index.load_publication(publication_row["id"])
             self.assertEqual(loaded.id, publication_row["id"])
@@ -157,6 +161,30 @@ class LibraryIndexTests(unittest.TestCase):
             index.rebuild(root)
 
             self.assertEqual(index.resource_locators(), (None,))
+
+    def test_search_treats_sql_wildcards_as_literal_text(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            write_manifest(
+                root / "Percent" / "pages.json",
+                "https://example.test/percent",
+                "Book 100%",
+                "https://cdn.example.test/percent.webp",
+            )
+            write_manifest(
+                root / "Other" / "pages.json",
+                "https://example.test/other",
+                "Other",
+                "https://cdn.example.test/other.webp",
+            )
+            index = LibraryIndex(database)
+            index.rebuild(root)
+
+            self.assertEqual(
+                [item["title"] for item in index.search_works("100%")],
+                ["Book 100%"],
+            )
 
     def test_flat_historical_manifest_is_indexed(self):
         with tempfile.TemporaryDirectory() as temp:

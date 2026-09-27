@@ -197,6 +197,7 @@ tout moment, sans modifier les livres ni les archives.
 ```powershell
 komaforge library rebuild
 komaforge library list
+komaforge library search "titre"
 komaforge library track IDENTIFIANT_PUBLICATION
 komaforge library tracked
 komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12

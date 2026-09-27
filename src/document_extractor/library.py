@@ -447,6 +447,33 @@ class LibraryIndex:
             ).fetchall()
         return tuple(dict(row) for row in rows)
 
+    def search_works(self, query: str) -> tuple[dict, ...]:
+        value = str(query or "").strip()
+        if not value:
+            raise ValueError("library search query cannot be empty")
+        if not self.path.is_file():
+            return ()
+        escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        with _open_connection(self.path) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    works.id,
+                    works.title,
+                    COUNT(DISTINCT publications.id) AS publication_count,
+                    COUNT(DISTINCT parts.id) AS part_count
+                FROM works
+                LEFT JOIN publications ON publications.work_id = works.id
+                LEFT JOIN parts ON parts.publication_id = publications.id
+                WHERE works.title LIKE ? ESCAPE '\\' COLLATE NOCASE
+                GROUP BY works.id, works.title
+                ORDER BY works.title COLLATE NOCASE, works.id
+                """,
+                (pattern,),
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
+
     def iter_publications(self) -> Iterator[dict]:
         if not self.path.is_file():
             return
