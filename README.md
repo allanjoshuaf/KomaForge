@@ -209,6 +209,10 @@ komaforge library publications --json
 komaforge library status
 komaforge library track IDENTIFIANT_PUBLICATION
 komaforge library tracked
+komaforge library unread
+komaforge library unread --publication-id IDENTIFIANT_PUBLICATION
+komaforge library update
+komaforge library update --publication-id IDENTIFIANT_PUBLICATION
 komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
 ```
 
@@ -226,7 +230,10 @@ Le suivi et la progression sont conservés séparément dans
 identifiants de publication nécessaires au suivi sont disponibles avec
 `komaforge library publications --json`. La commande `library add` réunit
 l’extraction, l’indexation et le suivi dans une seule opération ; elle ne suit rien
-si l’extraction est refusée ou incomplète.
+si l’extraction est refusée ou incomplète. La vue `unread` liste chaque partie non
+terminée et sa dernière position enregistrée, globalement ou pour une publication.
+`library update` ajoute une vérification pour chaque publication suivie sans créer de
+doublon lorsqu’une vérification identique est déjà en attente ou en cours.
 
 Les opérations différées utilisent une seconde base, indépendante de l’index :
 

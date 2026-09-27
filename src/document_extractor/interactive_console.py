@@ -69,6 +69,8 @@ PLATFORM_MESSAGES = {
         "library_search": "Rechercher une œuvre",
         "library_publications": "Afficher les publications et identifiants",
         "library_tracked": "Afficher les publications suivies",
+        "library_unread": "Afficher les parties non lues",
+        "library_update": "Planifier les mises à jour des publications suivies",
         "library_add": "Ajouter une URL et suivre la publication",
         "library_track": "Suivre une publication",
         "library_untrack": "Ne plus suivre une publication",
@@ -77,6 +79,7 @@ PLATFORM_MESSAGES = {
         "library_empty": "Aucune œuvre indexée.",
         "publication_empty": "Aucune publication indexée.",
         "tracked_empty": "Aucune publication suivie.",
+        "unread_empty": "Aucune partie non lue.",
         "query": "Recherche",
         "publication_id": "Identifiant de publication",
         "part_id": "Identifiant de partie",
@@ -149,6 +152,8 @@ PLATFORM_MESSAGES = {
         "library_search": "Search works",
         "library_publications": "Show publications and identifiers",
         "library_tracked": "Show tracked publications",
+        "library_unread": "Show unread parts",
+        "library_update": "Queue updates for tracked publications",
         "library_add": "Add a URL and track the publication",
         "library_track": "Track a publication",
         "library_untrack": "Stop tracking a publication",
@@ -157,6 +162,7 @@ PLATFORM_MESSAGES = {
         "library_empty": "No indexed works.",
         "publication_empty": "No indexed publications.",
         "tracked_empty": "No tracked publications.",
+        "unread_empty": "No unread parts.",
         "query": "Search",
         "publication_id": "Publication identifier",
         "part_id": "Part identifier",
@@ -229,6 +235,8 @@ PLATFORM_MESSAGES = {
         "library_search": "Поиск произведения",
         "library_publications": "Публикации и идентификаторы",
         "library_tracked": "Отслеживаемые публикации",
+        "library_unread": "Непрочитанные части",
+        "library_update": "Проверить обновления отслеживаемых публикаций",
         "library_add": "Добавить URL и отслеживать публикацию",
         "library_track": "Начать отслеживание",
         "library_untrack": "Прекратить отслеживание",
@@ -237,6 +245,7 @@ PLATFORM_MESSAGES = {
         "library_empty": "В индексе нет произведений.",
         "publication_empty": "В индексе нет публикаций.",
         "tracked_empty": "Нет отслеживаемых публикаций.",
+        "unread_empty": "Нет непрочитанных частей.",
         "query": "Поиск",
         "publication_id": "ID публикации",
         "part_id": "ID части",
@@ -309,6 +318,8 @@ PLATFORM_MESSAGES = {
         "library_search": "搜索作品",
         "library_publications": "显示出版物和标识符",
         "library_tracked": "显示已跟踪出版物",
+        "library_unread": "显示未读部分",
+        "library_update": "为已跟踪出版物安排更新",
         "library_add": "添加 URL 并跟踪出版物",
         "library_track": "跟踪出版物",
         "library_untrack": "停止跟踪出版物",
@@ -317,6 +328,7 @@ PLATFORM_MESSAGES = {
         "library_empty": "没有已索引作品。",
         "publication_empty": "没有已索引出版物。",
         "tracked_empty": "没有已跟踪出版物。",
+        "unread_empty": "没有未读部分。",
         "query": "搜索",
         "publication_id": "出版物标识符",
         "part_id": "部分标识符",
@@ -504,6 +516,19 @@ def _show_tracked(ui: TerminalUI, service: LibraryService) -> None:
         )
 
 
+def _show_unread(ui: TerminalUI, service: LibraryService) -> None:
+    unread = service.unread()
+    if not unread:
+        ui.notice(_text(ui, "unread_empty"), "info")
+        return
+    for item in unread:
+        ui.item(
+            item.part.title,
+            f"{item.publication.title} · {item.part.id} · "
+            f"{_text(ui, 'position')}={item.resource_position}",
+        )
+
+
 def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
     library_root = (root or default_output_root()).expanduser().resolve()
     index = LibraryIndex(library_root / ".komaforge" / "library.sqlite")
@@ -518,13 +543,15 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
         ui.option(4, _text(ui, "library_search"))
         ui.option(5, _text(ui, "library_publications"))
         ui.option(6, _text(ui, "library_tracked"))
-        ui.option(7, _text(ui, "library_add"))
-        ui.option(8, _text(ui, "library_track"))
-        ui.option(9, _text(ui, "library_untrack"))
-        ui.option(10, _text(ui, "library_progress"))
-        ui.option(11, _text(ui, "back"))
+        ui.option(7, _text(ui, "library_unread"))
+        ui.option(8, _text(ui, "library_update"))
+        ui.option(9, _text(ui, "library_add"))
+        ui.option(10, _text(ui, "library_track"))
+        ui.option(11, _text(ui, "library_untrack"))
+        ui.option(12, _text(ui, "library_progress"))
+        ui.option(13, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "11":
+        if choice == "13":
             return
         try:
             if choice == "1":
@@ -549,7 +576,18 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
             elif choice == "6" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_tracked"))
                 _show_tracked(ui, service)
-            elif choice == "7":
+            elif choice == "7" and _library_ready(ui, index, library_root):
+                ui.section(_text(ui, "library_unread"))
+                _show_unread(ui, service)
+            elif choice == "8" and _library_ready(ui, index, library_root):
+                queued = service.queue_updates(
+                    JobQueue(library_root / ".komaforge" / "jobs.sqlite")
+                )
+                ui.notice(
+                    f"{_text(ui, 'library_update')} : {len(queued)}",
+                    "success",
+                )
+            elif choice == "9":
                 source_url = ui.prompt(_text(ui, "url"))
                 output_format = ui.prompt(_text(ui, "format"), "original").casefold()
                 if output_format not in OUTPUT_FORMATS:
@@ -571,18 +609,18 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     f"{_text(ui, 'library_add')} : {added.publication.title}",
                     "success",
                 )
-            elif choice == "8" and _library_ready(ui, index, library_root):
+            elif choice == "10" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 service.track(publication_id)
                 ui.notice(_text(ui, "library_track"), "success")
-            elif choice == "9" and _library_ready(ui, index, library_root):
+            elif choice == "11" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 removed = state.untrack(publication_id)
                 ui.notice(
                     _text(ui, "library_untrack"),
                     "success" if removed else "warning",
                 )
-            elif choice == "10" and _library_ready(ui, index, library_root):
+            elif choice == "12" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 part_id = ui.prompt(_text(ui, "part_id"))
                 position = int(ui.prompt(_text(ui, "position")))
@@ -596,7 +634,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     completed=completed,
                 )
                 ui.notice(_text(ui, "library_progress"), "success")
-            elif choice not in {str(value) for value in range(1, 12)}:
+            elif choice not in {str(value) for value in range(1, 14)}:
                 ui.error(_text(ui, "submenu_invalid"))
         except (KeyError, OSError, RuntimeError, ValueError) as exc:
             ui.error(str(exc))

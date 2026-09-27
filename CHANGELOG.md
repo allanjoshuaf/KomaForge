@@ -14,6 +14,10 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   déjà en attente ;
 - la commande et le menu `library add` enchaînent extraction, indexation et suivi
   d’une publication depuis son URL, sans enregistrer un échec comme un ajout ;
+- la bibliothèque expose la liste des parties non lues, avec la dernière position
+  enregistrée pour les lectures commencées ;
+- toutes les publications suivies, ou une seule publication choisie, peuvent être
+  placées en file de mise à jour sans créer de vérifications actives en doublon ;
 - le menu interactif donne maintenant accès aux sources, aux familles de lecteurs,
   au diagnostic d’URL, à la bibliothèque locale et à la file d’attente persistante ;
 - la bibliothèque peut être reconstruite, parcourue, recherchée et suivie sans

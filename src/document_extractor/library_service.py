@@ -9,7 +9,9 @@ from pathlib import Path
 
 from .library import LibraryIndex
 from .library_state import LibraryState, ReadingProgress, TrackedPublication
+from .jobs import Job, JobAction, JobQueue, JobStatus
 from .models import Part, Publication
+from .paths import canonical_source_identity
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +26,13 @@ class TrackedPublicationView:
 class AddedPublication:
     publication: Publication
     tracked: TrackedPublication
+
+
+@dataclass(frozen=True, slots=True)
+class UnreadPartView:
+    publication: Publication
+    part: Part
+    resource_position: int
 
 
 ExtractionRunner = Callable[[Namespace], int]
@@ -139,3 +148,73 @@ class LibraryService:
                 )
             )
         return tuple(views)
+
+    def unread(self, publication_id: str | None = None) -> tuple[UnreadPartView, ...]:
+        """List tracked parts that have not been explicitly completed."""
+
+        views: list[UnreadPartView] = []
+        tracked = self.state.tracked()
+        if publication_id is not None:
+            tracked = tuple(
+                item for item in tracked if item.publication_id == publication_id
+            )
+            if not tracked:
+                raise KeyError(publication_id)
+        for tracked_publication in tracked:
+            publication = self.index.load_publication(
+                tracked_publication.publication_id
+            )
+            if publication is None:
+                continue
+            progress = {
+                item.part_id: item
+                for item in self.state.progress(tracked_publication.publication_id)
+            }
+            for part in publication.parts:
+                current = progress.get(part.id)
+                if current is not None and current.completed:
+                    continue
+                views.append(
+                    UnreadPartView(
+                        publication=publication,
+                        part=part,
+                        resource_position=(
+                            current.resource_position if current is not None else 0
+                        ),
+                    )
+                )
+        return tuple(views)
+
+    def queue_updates(
+        self,
+        queue: JobQueue,
+        publication_id: str | None = None,
+    ) -> tuple[Job, ...]:
+        """Queue one update check per tracked publication without active duplicates."""
+
+        tracked = self.state.tracked()
+        if publication_id is not None:
+            tracked = tuple(
+                item for item in tracked if item.publication_id == publication_id
+            )
+            if not tracked:
+                raise KeyError(publication_id)
+        active = {
+            canonical_source_identity(job.source_url)
+            for job in queue.list()
+            if job.action is JobAction.UPDATE
+            and job.status in {JobStatus.PENDING, JobStatus.RUNNING}
+        }
+        queued: list[Job] = []
+        for item in tracked:
+            publication = self.index.load_publication(item.publication_id)
+            if publication is None:
+                continue
+            identity = canonical_source_identity(publication.source_url)
+            if identity in active:
+                continue
+            queued.append(
+                queue.enqueue(JobAction.UPDATE, publication.source_url)
+            )
+            active.add(identity)
+        return tuple(queued)

@@ -11,6 +11,7 @@ from .formats import OUTPUT_FORMATS
 from .library import LibraryIndex
 from .library_service import LibraryService
 from .library_state import LibraryState
+from .jobs import JobQueue
 from .paths import default_output_root
 from .terminal_ui import SUPPORTED_LANGUAGES
 
@@ -94,6 +95,22 @@ def build_parser() -> argparse.ArgumentParser:
     tracked = subparsers.add_parser("tracked", help="Liste les publications suivies")
     _add_paths(tracked)
     _add_state_path(tracked)
+    unread = subparsers.add_parser("unread", help="Liste les parties non terminées")
+    unread.add_argument("--publication-id")
+    _add_paths(unread)
+    _add_state_path(unread)
+    update = subparsers.add_parser(
+        "update",
+        help="Met les publications suivies en file de vérification",
+    )
+    update.add_argument("--publication-id")
+    update.add_argument(
+        "--queue",
+        type=Path,
+        help="File SQLite (défaut : ROOT/.komaforge/jobs.sqlite)",
+    )
+    _add_paths(update)
+    _add_state_path(update)
     progress = subparsers.add_parser("progress", help="Enregistre la progression de lecture")
     progress.add_argument("publication_id")
     progress.add_argument("part_id")
@@ -162,7 +179,15 @@ def main(argv: list[str] | None = None) -> int:
             summary = index.rebuild(root)
             _print_rebuild(summary, index_path, args.as_json)
             return 0
-        if args.command in {"add", "track", "untrack", "tracked", "progress"}:
+        if args.command in {
+            "add",
+            "track",
+            "untrack",
+            "tracked",
+            "unread",
+            "update",
+            "progress",
+        }:
             state = LibraryState(_state_path(args, root))
             service = LibraryService(index, state)
             if args.command == "add":
@@ -196,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{added.publication.title} ({added.publication.id})"
                     )
                 return 0
+            index.ensure(root)
             if args.command == "track":
                 tracked = service.track(args.publication_id)
                 payload = {
@@ -235,6 +261,52 @@ def main(argv: list[str] | None = None) -> int:
                         f"Progression : {progress.part_id} — "
                         f"ressource {progress.resource_position}"
                     )
+                return 0
+
+            if args.command == "unread":
+                unread_parts = service.unread(args.publication_id)
+                payload = [
+                    {
+                        "publication_id": item.publication.id,
+                        "publication_title": item.publication.title,
+                        "part_id": item.part.id,
+                        "part_title": item.part.title,
+                        "part_position": item.part.position,
+                        "resource_position": item.resource_position,
+                    }
+                    for item in unread_parts
+                ]
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                elif not payload:
+                    print("Aucune partie non lue.")
+                else:
+                    for item in payload:
+                        print(
+                            f"{item['publication_title']} | {item['part_title']} | "
+                            f"position {item['resource_position']}"
+                        )
+                return 0
+
+            if args.command == "update":
+                queue_path = (
+                    args.queue.expanduser().resolve()
+                    if args.queue
+                    else root / ".komaforge" / "jobs.sqlite"
+                )
+                queued = service.queue_updates(
+                    JobQueue(queue_path),
+                    args.publication_id,
+                )
+                payload = {
+                    "queued": len(queued),
+                    "job_ids": [job.id for job in queued],
+                    "queue": str(queue_path),
+                }
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(f"{len(queued)} vérification(s) ajoutée(s) à la file.")
                 return 0
 
             views = service.tracked()

@@ -7,6 +7,7 @@ from pathlib import Path
 from document_extractor.library import LibraryIndex
 from document_extractor.library_service import LibraryService
 from document_extractor.library_state import LibraryState
+from document_extractor.jobs import JobAction, JobQueue
 
 from tests.test_library import write_manifest
 
@@ -125,6 +126,58 @@ class LibraryStateTests(unittest.TestCase):
             self.assertTrue(removed)
             self.assertEqual(state.tracked(), ())
             self.assertEqual(state.progress(), ())
+
+    def test_unread_lists_partial_parts_and_hides_completed_parts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, _, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            part = publication.parts[0]
+            service.track(publication.id)
+
+            initial = service.unread()
+            service.record_progress(publication.id, part.id, 1, completed=False)
+            partial = service.unread(publication.id)
+            service.record_progress(publication.id, part.id, 1, completed=True)
+            completed = service.unread(publication.id)
+
+            self.assertEqual(initial[0].resource_position, 0)
+            self.assertEqual(partial[0].resource_position, 1)
+            self.assertEqual(completed, ())
+
+    def test_unread_rejects_an_untracked_publication_filter(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, _, _, service = self._service(temp)
+
+            with self.assertRaises(KeyError):
+                service.unread("missing-publication")
+
+    def test_queue_updates_adds_each_tracked_publication_only_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, _, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            service.track(publication.id)
+            queue = JobQueue(Path(temp) / "jobs.sqlite")
+
+            first = service.queue_updates(queue)
+            second = service.queue_updates(queue)
+
+            self.assertEqual(len(first), 1)
+            self.assertEqual(first[0].action, JobAction.UPDATE)
+            self.assertEqual(second, ())
+            self.assertEqual(len(queue.list()), 1)
+
+    def test_queue_updates_can_target_one_tracked_publication(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, _, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            service.track(publication.id)
+            queue = JobQueue(Path(temp) / "jobs.sqlite")
+
+            queued = service.queue_updates(queue, publication.id)
+
+            self.assertEqual(len(queued), 1)
+            with self.assertRaises(KeyError):
+                service.queue_updates(queue, "missing-publication")
 
 
 if __name__ == "__main__":
