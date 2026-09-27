@@ -55,7 +55,11 @@ def _resource_kind(page: dict) -> ResourceKind:
 
 def _has_sensitive_query(locator: str) -> bool:
     volatile = {"hash", "reqid", "session", "t", "token", "uid"}
-    return bool(volatile.intersection(key.casefold() for key in parse_qs(urlparse(locator).query)))
+    keys = {
+        key.casefold().strip("_-")
+        for key in parse_qs(urlparse(locator).query)
+    }
+    return bool(volatile.intersection(keys))
 
 
 def _resources_from_record(part_id: str, record: dict) -> tuple[Resource, ...]:
@@ -104,11 +108,66 @@ def _coverage_from_record(record: dict) -> Coverage:
     return coverage
 
 
-def normalize_legacy_manifest(manifest: dict, source_id: str) -> Work:
+def _upgrade_flat_manifest(manifest: dict, title_hint: str | None) -> dict:
+    """Present pre-publication manifests through the current legacy shape."""
+
+    if isinstance(manifest.get("publication"), dict):
+        return manifest
+    pages = manifest.get("pages")
+    if not isinstance(pages, list):
+        return manifest
+    title = str(title_hint or "").strip()
+    if not title:
+        raise LegacyManifestError(
+            "flat legacy manifest needs a title hint from its directory"
+        )
+    detected = int(manifest.get("detected") or len(pages))
+    expected_value = manifest.get("expected")
+    expected = int(expected_value) if expected_value is not None else None
+    complete = (
+        expected is not None
+        and detected == expected
+        and not (manifest.get("missing") or [])
+    )
+    status = "complete" if complete else "incomplete"
+    record = {
+        "index": 1,
+        "number": "1",
+        "title": title,
+        "kind": "document",
+        "source_url": manifest.get("source_url"),
+        "status": status,
+        "detected": detected,
+        "expected": expected,
+        "expected_source": manifest.get("expected_source"),
+        "resource_unit": "resources",
+        "pages": pages,
+    }
+    if isinstance(manifest.get("artifact"), dict):
+        record["artifact"] = manifest["artifact"]
+    upgraded = dict(manifest)
+    upgraded["publication"] = {
+        "type": "document",
+        "title": title,
+        "part_count": 1,
+        "selected_part_count": 1,
+        "chapters": [record],
+        "status": status,
+    }
+    return upgraded
+
+
+def normalize_legacy_manifest(
+    manifest: dict,
+    source_id: str,
+    *,
+    title_hint: str | None = None,
+) -> Work:
     """Build normalized models and reject contradictory legacy success claims."""
 
     if not isinstance(manifest, dict):
         raise LegacyManifestError("manifest must be a dictionary")
+    manifest = _upgrade_flat_manifest(manifest, title_hint)
     source_url = str(manifest.get("source_url") or "")
     if not source_url:
         raise LegacyManifestError("manifest source_url is missing")

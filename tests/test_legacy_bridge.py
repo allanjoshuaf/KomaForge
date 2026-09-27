@@ -27,6 +27,42 @@ def manifest(record: dict, *, availability: dict | None = None) -> dict:
 
 
 class LegacyBridgeTests(unittest.TestCase):
+    def test_flat_historical_manifest_uses_its_directory_title_hint(self):
+        work = normalize_legacy_manifest(
+            {
+                "source_url": "https://example.test/old-book",
+                "expected": 1,
+                "detected": 1,
+                "missing": [],
+                "pages": [
+                    {
+                        "page": 1,
+                        "url": "https://cdn.example.test/1.webp?_token_=secret",
+                        "file": "page-0001.webp",
+                    }
+                ],
+            },
+            "generic-web",
+            title_hint="Old Book",
+        )
+
+        publication = work.publications[0]
+        self.assertEqual(publication.title, "Old Book")
+        self.assertEqual(publication.metadata["legacy_status"], "complete")
+        self.assertTrue(publication.parts[0].resources[0].sensitive_locator)
+
+    def test_flat_historical_manifest_without_title_hint_is_rejected(self):
+        with self.assertRaisesRegex(LegacyManifestError, "title hint"):
+            normalize_legacy_manifest(
+                {
+                    "source_url": "https://example.test/old-book",
+                    "expected": 0,
+                    "detected": 0,
+                    "pages": [],
+                },
+                "generic-web",
+            )
+
     def test_complete_image_record_becomes_normalized_models(self):
         work = normalize_legacy_manifest(
             manifest(

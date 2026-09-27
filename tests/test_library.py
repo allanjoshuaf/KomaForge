@@ -1,0 +1,238 @@
+from __future__ import annotations
+
+import json
+import hashlib
+import tempfile
+import unittest
+from pathlib import Path
+
+from document_extractor.library import LibraryIndex, discover_manifests
+
+
+def write_manifest(path: Path, source_url: str, title: str, page_url: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "source_url": source_url,
+                "publication": {
+                    "type": "document",
+                    "title": title,
+                    "part_count": 1,
+                    "selected_part_count": 1,
+                    "status": "complete",
+                    "chapters": [
+                        {
+                            "index": 1,
+                            "number": "1",
+                            "title": title,
+                            "kind": "document",
+                            "source_url": source_url,
+                            "status": "complete",
+                            "detected": 1,
+                            "expected": 1,
+                            "expected_source": "test manifest",
+                            "pages": [
+                                {
+                                    "page": 1,
+                                    "url": page_url,
+                                    "file": "page-0001.webp",
+                                    "sha256": "a" * 64,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+class LibraryIndexTests(unittest.TestCase):
+    def test_discovers_only_authoritative_manifest_names(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_manifest(
+                root / "One" / "pages.json",
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            write_manifest(
+                root / "Two" / "publication.json",
+                "https://example.test/two",
+                "Two",
+                "https://cdn.example.test/two.webp",
+            )
+            (root / "ignored.json").write_text("{}", encoding="utf-8")
+            (root / ".komaforge-work").mkdir()
+            write_manifest(
+                root / ".komaforge-work" / "pages.json",
+                "https://example.test/temporary",
+                "Temporary",
+                "https://cdn.example.test/temporary.webp",
+            )
+
+            manifests = discover_manifests(root)
+
+            self.assertEqual(
+                [path.name for path in manifests],
+                ["pages.json", "publication.json"],
+            )
+
+    def test_rebuild_indexes_valid_manifests_and_can_be_repeated(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            write_manifest(
+                root / "One" / "pages.json",
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            write_manifest(
+                root / "Two" / "pages.json",
+                "https://example.test/two",
+                "Two",
+                "https://cdn.example.test/two.webp",
+            )
+            index = LibraryIndex(database)
+
+            first = index.rebuild(root)
+            second = index.rebuild(root)
+
+            self.assertEqual(first, second)
+            self.assertEqual(first.manifests, 2)
+            self.assertEqual(first.duplicate_manifests, 0)
+            self.assertEqual(first.works, 2)
+            self.assertEqual(first.publications, 2)
+            self.assertEqual(first.parts, 2)
+            self.assertEqual(first.resources, 2)
+            self.assertEqual(index.schema_version(), 1)
+            self.assertEqual(
+                [item["title"] for item in index.list_works()],
+                ["One", "Two"],
+            )
+
+    def test_failed_rebuild_leaves_the_previous_index_untouched(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            manifest = root / "One" / "pages.json"
+            write_manifest(
+                manifest,
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            index = LibraryIndex(database)
+            index.rebuild(root)
+            manifest.write_text("{broken", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "invalid KomaForge manifest"):
+                index.rebuild(root)
+
+            self.assertEqual(
+                [item["title"] for item in index.list_works()],
+                ["One"],
+            )
+
+    def test_sensitive_resource_locator_is_not_copied_into_sqlite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            write_manifest(
+                root / "One" / "pages.json",
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp?token=sensitive",
+            )
+            index = LibraryIndex(database)
+
+            index.rebuild(root)
+
+            self.assertEqual(index.resource_locators(), (None,))
+
+    def test_flat_historical_manifest_is_indexed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            manifest = root / "Historical-Book" / "pages.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "source_url": "https://example.test/historical",
+                        "created_at": "2025-01-01T00:00:00+00:00",
+                        "expected": 1,
+                        "detected": 1,
+                        "saved": 1,
+                        "missing": [],
+                        "pages": [
+                            {
+                                "page": 1,
+                                "url": "https://cdn.example.test/one.webp?_token_=secret",
+                                "file": "page-0001.webp",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            index = LibraryIndex(database)
+
+            summary = index.rebuild(root)
+
+            self.assertEqual(summary.publications, 1)
+            self.assertEqual(index.list_works()[0]["title"], "Historical-Book")
+            self.assertEqual(index.resource_locators(), (None,))
+
+    def test_duplicate_publication_prefers_status_then_integrity_then_date(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            source_url = "https://example.test/duplicate"
+            inferior = root / "Inferior" / "pages.json"
+            winner = root / "Winner" / "pages.json"
+            write_manifest(
+                inferior,
+                source_url,
+                "Duplicate",
+                "https://cdn.example.test/inferior.webp",
+            )
+            write_manifest(
+                winner,
+                source_url,
+                "Duplicate",
+                "https://cdn.example.test/winner.webp",
+            )
+            inferior_payload = json.loads(inferior.read_text(encoding="utf-8"))
+            inferior_payload["created_at"] = "2026-02-01T00:00:00+00:00"
+            inferior_payload["publication"]["status"] = "incomplete"
+            inferior_payload["publication"]["chapters"][0]["status"] = "incomplete"
+            inferior.write_text(json.dumps(inferior_payload), encoding="utf-8")
+
+            artifact = winner.parent / "document.cbz"
+            artifact.write_bytes(b"verified archive")
+            winner_payload = json.loads(winner.read_text(encoding="utf-8"))
+            winner_payload["created_at"] = "2026-01-01T00:00:00+00:00"
+            winner_payload["artifact"] = {
+                "path": artifact.name,
+                "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            }
+            winner.write_text(json.dumps(winner_payload), encoding="utf-8")
+            index = LibraryIndex(database)
+
+            summary = index.rebuild(root)
+            publication = tuple(index.iter_publications())[0]
+
+            self.assertEqual(summary.manifests, 2)
+            self.assertEqual(summary.duplicate_manifests, 1)
+            self.assertEqual(summary.publications, 1)
+            self.assertEqual(Path(publication["manifest_path"]), winner)
+            self.assertEqual(publication["artifact_integrity"], "verified")
+
+
+if __name__ == "__main__":
+    unittest.main()
