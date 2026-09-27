@@ -161,6 +161,18 @@ class PortablePathTests(unittest.TestCase):
             canonical_source_identity(second),
         )
 
+    def test_source_identity_ignores_tracking_parameters(self):
+        clean = "https://example.test/book/1?chapter=2"
+        tracked = (
+            "https://example.test/book/1?chapter=2&utm_source=partner&"
+            "fbclid=temporary"
+        )
+
+        self.assertEqual(
+            canonical_source_identity(clean),
+            canonical_source_identity(tracked),
+        )
+
     def test_output_is_under_configured_application_home(self):
         with tempfile.TemporaryDirectory() as temp:
             result = default_output_dir(

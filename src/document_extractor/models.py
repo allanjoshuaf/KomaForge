@@ -350,3 +350,19 @@ class Work:
             ],
             "metadata": dict(self.metadata),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateResult:
+    publication_id: str
+    parts: tuple[Part, ...]
+    coverage: Coverage
+
+    def __post_init__(self) -> None:
+        _require_text(self.publication_id, "publication_id")
+        if not isinstance(self.parts, tuple) or not all(
+            isinstance(part, Part) for part in self.parts
+        ):
+            raise ValueError("parts must be a tuple of Part instances")
+        if not isinstance(self.coverage, Coverage):
+            raise ValueError("coverage must be a Coverage")

@@ -21,8 +21,10 @@ from .contracts import (
     ResourceSet,
     SourceReference,
     SourceSession,
+    UpdateResult,
 )
 from .generic import GenericWebSource
+from ..updates import compare_part_updates
 
 
 _MANGA_PATH = re.compile(
@@ -156,3 +158,15 @@ class MangaUpSource:
         session: SourceSession,
     ) -> ResourceSet:
         return self._generic_resources.get_resources(part, session)
+
+    def check_updates(
+        self,
+        publication: Publication,
+        known_parts: tuple[Part, ...],
+        session: SourceSession,
+    ) -> UpdateResult:
+        if publication.source_id != self.id:
+            raise ValueError(
+                f"publication belongs to {publication.source_id!r}, not {self.id!r}"
+            )
+        return compare_part_updates(publication, known_parts, publication.parts)

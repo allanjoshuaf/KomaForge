@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, runtime_checkable
 
-from ..models import Confidence, Coverage, Part, Publication, Resource, Work
+from ..models import (
+    Confidence,
+    Coverage,
+    Part,
+    Publication,
+    Resource,
+    UpdateResult,
+    Work,
+)
 
 
 def _require_text(value: str, field_name: str) -> None:
@@ -170,22 +178,6 @@ class BrowseCapability(Protocol):
     def popular(self, page: int, session: SourceSession) -> SearchPage: ...
 
     def latest(self, page: int, session: SourceSession) -> SearchPage: ...
-
-
-@dataclass(frozen=True, slots=True)
-class UpdateResult:
-    publication_id: str
-    parts: tuple[Part, ...]
-    coverage: Coverage
-
-    def __post_init__(self) -> None:
-        _require_text(self.publication_id, "publication_id")
-        if not isinstance(self.parts, tuple) or not all(
-            isinstance(part, Part) for part in self.parts
-        ):
-            raise ValueError("parts must be a tuple of Part instances")
-        if not isinstance(self.coverage, Coverage):
-            raise ValueError("coverage must be a Coverage")
 
 
 @runtime_checkable

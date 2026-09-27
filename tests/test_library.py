@@ -114,6 +114,10 @@ class LibraryIndexTests(unittest.TestCase):
                 [item["title"] for item in index.list_works()],
                 ["One", "Two"],
             )
+            publication_row = next(index.iter_publications())
+            loaded = index.load_publication(publication_row["id"])
+            self.assertEqual(loaded.id, publication_row["id"])
+            self.assertEqual(loaded.title, publication_row["title"])
 
     def test_failed_rebuild_leaves_the_previous_index_untouched(self):
         with tempfile.TemporaryDirectory() as temp:

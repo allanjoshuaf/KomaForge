@@ -149,11 +149,22 @@ def canonical_source_identity(source_url: str) -> str:
     if query.get("bid"):
         stable_query = urlencode({"bid": query["bid"][0]})
     else:
-        volatile = {"hash", "reqid", "session", "t", "token", "uid"}
+        volatile = {
+            "fbclid",
+            "gclid",
+            "hash",
+            "msclkid",
+            "reqid",
+            "session",
+            "t",
+            "token",
+            "uid",
+        }
         stable_items = sorted(
             (key, value)
             for key, values in query.items()
-            if key.casefold() not in volatile
+            if key.casefold().strip("_-") not in volatile
+            and not key.casefold().startswith("utm_")
             for value in values
         )
         stable_query = urlencode(stable_items)

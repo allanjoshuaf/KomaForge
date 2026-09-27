@@ -460,6 +460,36 @@ class LibraryIndex:
         for row in rows:
             yield dict(row)
 
+    def load_publication(self, publication_id: str) -> Publication | None:
+        if not self.path.is_file():
+            return None
+        with _open_connection(self.path) as connection:
+            row = connection.execute(
+                """
+                SELECT source_id, manifest_path
+                FROM publications
+                WHERE id = ?
+                """,
+                (publication_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        manifest_path = Path(row["manifest_path"])
+        payload = _read_manifest(manifest_path)
+        work = normalize_legacy_manifest(
+            payload,
+            row["source_id"],
+            title_hint=manifest_path.parent.name,
+        )
+        return next(
+            (
+                publication
+                for publication in work.publications
+                if publication.id == publication_id
+            ),
+            None,
+        )
+
     def resource_locators(self) -> tuple[str | None, ...]:
         if not self.path.is_file():
             return ()

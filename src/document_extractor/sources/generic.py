@@ -34,7 +34,9 @@ from .contracts import (
     ResourceSet,
     SourceReference,
     SourceSession,
+    UpdateResult,
 )
+from ..updates import compare_part_updates
 
 
 def _stable_id(prefix: str, value: str) -> str:
@@ -263,3 +265,12 @@ class GenericWebSource:
             ),
         )
         return ResourceSet(resources, coverage)
+
+    def check_updates(
+        self,
+        publication: Publication,
+        known_parts: tuple[Part, ...],
+        session: SourceSession,
+    ) -> UpdateResult:
+        current_parts = self.get_parts(publication, session)
+        return compare_part_updates(publication, known_parts, current_parts)

@@ -9,6 +9,7 @@ from document_extractor.sources import (
     MangaUpSource,
     SourceReference,
     SourceSession,
+    UpdateCapability,
     build_default_registry,
 )
 from document_extractor.sources.manga_up import publication_from_catalog
@@ -109,6 +110,23 @@ class MangaUpSourceTests(unittest.TestCase):
         self.assertEqual(publication.title, "Fullmetal Alchemist")
         self.assertEqual(len(source.get_parts(publication, session)), 3)
         discover_catalog_mock.assert_called_once_with(session.page, SOURCE_URL)
+
+    def test_adapter_exposes_update_capability(self):
+        source = MangaUpSource()
+        publication = publication_from_catalog(
+            catalog(),
+            source_url=SOURCE_URL,
+            title="Fullmetal Alchemist",
+        )
+
+        result = source.check_updates(
+            publication,
+            publication.parts[:2],
+            SourceSession(page=FakePage()),
+        )
+
+        self.assertIsInstance(source, UpdateCapability)
+        self.assertEqual([part.number for part in result.parts], ["1 -3"])
 
 
 if __name__ == "__main__":
