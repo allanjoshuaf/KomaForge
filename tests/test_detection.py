@@ -235,6 +235,70 @@ class ChapterDiscoveryTests(unittest.TestCase):
 
         self.assertEqual(result, {"url": reader_url, "action": "Preview"})
 
+    def test_ebooks_product_retries_same_preview_after_transient_failure(self):
+        reader_url = "https://reader.ebooks.com/preview?uid=second-attempt"
+
+        class FakeControl:
+            def __init__(self, page):
+                self.page = page
+
+            @property
+            def first(self):
+                return self
+
+            def click(self, **_kwargs):
+                self.page.clicks += 1
+                if self.page.clicks == 2:
+                    self.page.context.pages.append(
+                        SimpleNamespace(url=reader_url, is_closed=lambda: False)
+                    )
+
+            def evaluate(self, _script):
+                self.click()
+
+        class FakePage:
+            url = "https://www.ebooks.com/en-us/book/210629805/physics/author/"
+            frames = []
+
+            def __init__(self):
+                self.clicks = 0
+                self.context = SimpleNamespace(pages=[self])
+
+            @staticmethod
+            def evaluate(_script):
+                return {
+                    "marker": "preview",
+                    "label": "Preview",
+                    "href": "",
+                }
+
+            def locator(self, _selector):
+                return FakeControl(self)
+
+            def on(self, _event, callback):
+                self.callback = callback
+
+            def remove_listener(self, _event, callback):
+                self.removed_callback = callback
+
+            @staticmethod
+            def wait_for_timeout(_milliseconds):
+                return None
+
+            @staticmethod
+            def is_closed():
+                return False
+
+        page = FakePage()
+
+        with patch("document_extractor.detection.time.monotonic") as monotonic:
+            ticks = iter(range(100))
+            monotonic.side_effect = lambda: next(ticks)
+            result = discover_linked_reader(page.context, page)
+
+        self.assertEqual(result, {"url": reader_url, "action": "Preview"})
+        self.assertEqual(page.clicks, 2)
+
     def test_prefers_a_numbered_page_family_over_reader_noise(self):
         candidates = []
         for index in range(161):

@@ -10,6 +10,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   quitter l’interface ; la progression de lecture y est également enregistrable ;
 - les inspections, téléchargements et vérifications de mise à jour peuvent être
   ajoutés, consultés, relancés ou annulés depuis le même menu ;
+- eBooks : une activation Preview ignorée juste après la vérification d’accès est
+  relancée une fois, sans deviner d’URL ni élargir le contenu autorisé ;
 - nouveau menu terminal structuré, coloré lorsque le terminal le permet et
   utilisable sans couleur ; interface disponible en français, anglais, russe
   et chinois, y compris l'aide `--help` et les principaux diagnostics ;

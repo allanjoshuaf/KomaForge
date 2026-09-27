@@ -770,33 +770,39 @@ def discover_linked_reader(context, page) -> dict | None:
 
     try:
         deadline = time.monotonic() + 15
-        for candidate in clickable_candidates:
-            control = page.locator(
-                f'[data-komaforge-reader-entry="{candidate["marker"]}"]'
-            ).first
-            try:
+        # The preview-launch endpoint can ignore the first click immediately
+        # after its access check has cleared. A second bounded pass uses the
+        # same explicit Preview control without guessing an endpoint or URL.
+        for _round in range(2):
+            for candidate in clickable_candidates:
+                control = page.locator(
+                    f'[data-komaforge-reader-entry="{candidate["marker"]}"]'
+                ).first
                 try:
-                    control.click(timeout=5_000, no_wait_after=True)
+                    try:
+                        control.click(timeout=5_000, no_wait_after=True)
+                    except Exception:
+                        control.evaluate("node => node.click()")
                 except Exception:
-                    control.evaluate("node => node.click()")
-            except Exception:
-                continue
+                    continue
 
-            attempt_deadline = min(deadline, time.monotonic() + 5)
-            while time.monotonic() < attempt_deadline:
-                if launched_urls:
-                    return {"url": launched_urls[-1], "action": candidate["label"]}
-                active_urls = [
-                    active.url
-                    for active in context.pages
-                    if not active.is_closed()
-                ]
-                active_urls.extend(frame.url for frame in page.frames)
-                for raw_url in active_urls:
-                    reader_url = _ebooks_reader_url(raw_url)
-                    if reader_url:
-                        return {"url": reader_url, "action": candidate["label"]}
-                page.wait_for_timeout(250)
+                attempt_deadline = min(deadline, time.monotonic() + 5)
+                while time.monotonic() < attempt_deadline:
+                    if launched_urls:
+                        return {"url": launched_urls[-1], "action": candidate["label"]}
+                    active_urls = [
+                        active.url
+                        for active in context.pages
+                        if not active.is_closed()
+                    ]
+                    active_urls.extend(frame.url for frame in page.frames)
+                    for raw_url in active_urls:
+                        reader_url = _ebooks_reader_url(raw_url)
+                        if reader_url:
+                            return {"url": reader_url, "action": candidate["label"]}
+                    page.wait_for_timeout(250)
+                if time.monotonic() >= deadline:
+                    break
             if time.monotonic() >= deadline:
                 break
     finally:
