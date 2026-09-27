@@ -13,6 +13,7 @@ from .contracts import (
     UpdateCapability,
     UpdateResult,
 )
+from .generic import GenericWebSource
 from .registry import (
     AmbiguousSourceError,
     DuplicateSourceError,
@@ -25,6 +26,7 @@ __all__ = [
     "AmbiguousSourceError",
     "BrowseCapability",
     "DuplicateSourceError",
+    "GenericWebSource",
     "MatchContext",
     "MatchResult",
     "ResourceSet",
