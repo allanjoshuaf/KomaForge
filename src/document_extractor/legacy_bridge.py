@@ -212,6 +212,7 @@ def normalize_legacy_manifest(
             )
         )
 
+    publication_status = str(publication_data.get("status") or "")
     availability = publication_data.get("availability")
     if isinstance(availability, dict):
         available = int(availability.get("accessible_part_count") or 0)
@@ -225,16 +226,37 @@ def normalize_legacy_manifest(
             source_limited=bool(availability.get("access_limited")),
         )
     else:
-        part_count = int(publication_data.get("part_count") or len(parts))
-        publication_coverage = Coverage.from_counts(
-            part_count,
-            part_count,
-            unit="parts",
-            evidence="legacy publication structure",
-            confidence=Confidence.MEDIUM,
+        part_coverages = [part.coverage for part in parts if part.coverage is not None]
+        known_totals = bool(part_coverages) and all(
+            coverage.expected is not None for coverage in part_coverages
         )
+        same_unit = len({coverage.unit for coverage in part_coverages}) == 1
+        if publication_status != "complete" and known_totals and same_unit:
+            publication_coverage = Coverage.from_counts(
+                sum(coverage.available for coverage in part_coverages),
+                sum(coverage.expected or 0 for coverage in part_coverages),
+                unit=part_coverages[0].unit,
+                evidence="aggregated legacy part coverage",
+                confidence=Confidence.HIGH,
+            )
+        elif publication_status != "complete":
+            publication_coverage = Coverage.from_counts(
+                sum(coverage.available for coverage in part_coverages),
+                None,
+                unit=(part_coverages[0].unit if same_unit and part_coverages else "parts"),
+                evidence="incomplete legacy publication",
+                confidence=Confidence.MEDIUM,
+            )
+        else:
+            part_count = int(publication_data.get("part_count") or len(parts))
+            publication_coverage = Coverage.from_counts(
+                part_count,
+                part_count,
+                unit="parts",
+                evidence="legacy publication structure",
+                confidence=Confidence.MEDIUM,
+            )
 
-    publication_status = str(publication_data.get("status") or "")
     if (
         publication_status == "complete"
         and publication_coverage.status is CoverageStatus.SOURCE_LIMITED

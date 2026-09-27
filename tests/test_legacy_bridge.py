@@ -124,6 +124,35 @@ class LegacyBridgeTests(unittest.TestCase):
         coverage = work.publications[0].parts[0].coverage
         self.assertEqual(coverage.status, CoverageStatus.INCOMPLETE)
         self.assertEqual(coverage.missing, 51)
+        publication_coverage = work.publications[0].coverage
+        self.assertEqual(publication_coverage.status, CoverageStatus.INCOMPLETE)
+        self.assertEqual(publication_coverage.missing, 51)
+
+    def test_incomplete_publication_with_unknown_total_never_claims_complete(self):
+        work = normalize_legacy_manifest(
+            manifest(
+                {
+                    "index": 1,
+                    "number": "1",
+                    "title": "Example",
+                    "kind": "document",
+                    "source_url": "https://example.test/book",
+                    "status": "incomplete",
+                    "detected": 2,
+                    "expected": None,
+                    "pages": [
+                        {"page": 1, "url": "https://example.test/1.webp"},
+                        {"page": 2, "url": "https://example.test/2.webp"},
+                    ],
+                }
+            ),
+            "generic-web",
+        )
+
+        self.assertEqual(
+            work.publications[0].coverage.status,
+            CoverageStatus.UNKNOWN,
+        )
 
     def test_source_limited_catalog_remains_distinct(self):
         data = manifest(
