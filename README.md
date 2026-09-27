@@ -209,6 +209,19 @@ garde une seule publication canonique. Elle privilégie d’abord son état de
 complétude, puis l’intégrité vérifiable de son artefact et enfin sa date. Les URL de
 ressources portant des jetons temporaires ne sont pas copiées dans l’index.
 
+Les opérations différées utilisent une seconde base, indépendante de l’index :
+
+```powershell
+komaforge-jobs add "https://votre-site.com/document" --action inspect
+komaforge-jobs list
+komaforge-jobs cancel IDENTIFIANT
+```
+
+La file accepte `inspect`, `download` et `update`. Elle conserve l’état et le nombre
+de tentatives après un redémarrage, mais refuse les URL contenant des identifiants,
+des jetons temporaires ou une session de lecteur eBooks. Une URL produit stable est
+requise afin qu’aucun secret de session ne soit écrit dans SQLite.
+
 Pour analyser d'abord une URL sans enregistrer les pages :
 
 ```powershell
