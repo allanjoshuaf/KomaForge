@@ -222,6 +222,7 @@ Les opérations différées utilisent une seconde base, indépendante de l’ind
 
 ```powershell
 komaforge jobs add "https://votre-site.com/document" --action inspect
+komaforge jobs add "https://votre-site.com/oeuvre" --action download --format cbz --chapters "1-5"
 komaforge jobs list
 komaforge jobs run-next
 komaforge jobs cancel IDENTIFIANT

@@ -5,9 +5,11 @@ import json
 import sys
 from pathlib import Path
 
+from .formats import OUTPUT_FORMATS
 from .job_executor import JobExecutor
 from .jobs import Job, JobAction, JobQueue, JobStatus
 from .paths import default_output_root
+from .terminal_ui import SUPPORTED_LANGUAGES
 
 
 def _default_queue_path() -> Path:
@@ -37,6 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
         choices=tuple(action.value for action in JobAction),
         default=JobAction.DOWNLOAD.value,
     )
+    add.add_argument("--format", choices=OUTPUT_FORMATS, dest="output_format")
+    add.add_argument("--scope", choices=("auto", "document", "work"))
+    add.add_argument("--chapters")
+    add.add_argument("--output", type=Path)
+    add.add_argument("--expected", type=int)
+    add.add_argument("--selector")
+    add.add_argument("--language", choices=SUPPORTED_LANGUAGES)
+    add.add_argument("--workers", type=int, choices=range(1, 13), metavar="1-12")
+    add.add_argument("--watermarks", choices=("detect", "remove"))
+    add.add_argument("--allow-host", action="append", default=[])
     add.add_argument("--json", action="store_true", dest="as_json")
     _add_queue_path(add)
 
@@ -91,12 +103,38 @@ def _print_job(job: Job, as_json: bool) -> None:
     print(f"{job.id} | {job.status.value} | {job.action.value} | {job.source_id}")
 
 
+def _options_from_args(args: argparse.Namespace) -> dict:
+    options = {}
+    for key in (
+        "chapters",
+        "expected",
+        "language",
+        "output_format",
+        "scope",
+        "selector",
+        "watermarks",
+        "workers",
+    ):
+        value = getattr(args, key, None)
+        if value is not None:
+            options[key] = value
+    if args.output is not None:
+        options["output"] = str(args.output.expanduser())
+    if args.allow_host:
+        options["allow_host"] = list(args.allow_host)
+    return options
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     queue = JobQueue(args.queue)
     try:
         if args.command == "add":
-            job = queue.enqueue(JobAction(args.action), args.url)
+            job = queue.enqueue(
+                JobAction(args.action),
+                args.url,
+                options=_options_from_args(args),
+            )
             _print_job(job, args.as_json)
             return 0
         if args.command == "cancel":

@@ -22,6 +22,16 @@ class JobsCliTests(unittest.TestCase):
                         "https://example.test/book",
                         "--action",
                         "inspect",
+                        "--format",
+                        "epub",
+                        "--scope",
+                        "document",
+                        "--chapters",
+                        "1-3",
+                        "--workers",
+                        "2",
+                        "--allow-host",
+                        "cdn.example.test",
                         "--queue",
                         str(queue),
                         "--json",
@@ -58,6 +68,16 @@ class JobsCliTests(unittest.TestCase):
 
             self.assertEqual(added_code, 0)
             self.assertEqual(added["action"], "inspect")
+            self.assertEqual(
+                added["options"],
+                {
+                    "allow_host": ["cdn.example.test"],
+                    "chapters": "1-3",
+                    "output_format": "epub",
+                    "scope": "document",
+                    "workers": 2,
+                },
+            )
             self.assertEqual(listed_code, 0)
             self.assertEqual([job["id"] for job in listed], [added["id"]])
             self.assertEqual(cancelled_code, 0)
