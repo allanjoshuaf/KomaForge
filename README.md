@@ -227,6 +227,18 @@ existant. Les travaux `update` restent en attente tant que la comparaison des
 parties propres à la source n’est pas disponible; ils ne sont jamais transformés
 silencieusement en téléchargement complet.
 
+Les adaptateurs disponibles et leurs capacités peuvent être interrogés sans ouvrir
+de navigateur :
+
+```powershell
+komaforge-sources list
+komaforge-sources match "https://global.manga-up.com/manga/126"
+```
+
+La commande `match` montre clairement si l’URL utilise une source spécialisée ou
+le fallback web générique. Elle ne contacte pas le site et ne masque donc jamais
+l’échec ultérieur d’un adaptateur reconnu.
+
 Pour analyser d'abord une URL sans enregistrer les pages :
 
 ```powershell
