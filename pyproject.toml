@@ -19,6 +19,7 @@ conversion = ["pikepdf>=10,<11", "pypdfium2>=4,<5"]
 
 [project.scripts]
 komaforge = "document_extractor.cli:main"
+komaforge-library = "document_extractor.library_cli:main"
 document-extractor = "document_extractor.cli:main"
 
 [tool.setuptools.packages.find]

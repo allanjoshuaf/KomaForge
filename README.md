@@ -188,6 +188,27 @@ Après l'installation, cette forme fonctionne aussi :
 komaforge "https://votre-site.com/document" --format epub
 ```
 
+## Bibliothèque locale
+
+KomaForge peut reconstruire un index SQLite à partir des manifestes déjà présents.
+Les manifestes restent la source de vérité : l’index peut être supprimé et recréé à
+tout moment, sans modifier les livres ni les archives.
+
+```powershell
+komaforge-library rebuild
+komaforge-library list
+```
+
+Par défaut, la commande lit `C:\Extractions\Manga` sous Windows et place l’index
+dans `C:\Extractions\Manga\.komaforge\library.sqlite`. `--root` permet de choisir
+une autre bibliothèque et `--index` un autre fichier SQLite. L’option `--json`
+fournit une sortie stable pour une future interface ou un autre outil local.
+
+Lorsqu’une même source possède plusieurs anciens manifestes, la reconstruction
+garde une seule publication canonique. Elle privilégie d’abord son état de
+complétude, puis l’intégrité vérifiable de son artefact et enfin sa date. Les URL de
+ressources portant des jetons temporaires ne sont pas copiées dans l’index.
+
 Pour analyser d'abord une URL sans enregistrer les pages :
 
 ```powershell
