@@ -202,6 +202,7 @@ tout moment, sans modifier les livres ni les archives.
 
 ```powershell
 komaforge library rebuild
+komaforge library add "https://votre-site.com/oeuvre" --format original
 komaforge library list
 komaforge library search "titre"
 komaforge library publications --json
@@ -223,7 +224,9 @@ ressources portant des jetons temporaires ne sont pas copiées dans l’index.
 Le suivi et la progression sont conservés séparément dans
 `.komaforge/state.sqlite`; reconstruire `library.sqlite` ne les efface pas. Les
 identifiants de publication nécessaires au suivi sont disponibles avec
-`komaforge library publications --json`.
+`komaforge library publications --json`. La commande `library add` réunit
+l’extraction, l’indexation et le suivi dans une seule opération ; elle ne suit rien
+si l’extraction est refusée ou incomplète.
 
 Les opérations différées utilisent une seconde base, indépendante de l’index :
 

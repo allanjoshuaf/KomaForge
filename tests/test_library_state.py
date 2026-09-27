@@ -55,6 +55,53 @@ class LibraryStateTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 service.track("missing-publication")
 
+    def test_add_url_extracts_indexes_and_tracks_in_one_operation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            state = LibraryState(root / ".komaforge" / "state.sqlite")
+            service = LibraryService(index, state)
+            received = []
+
+            def runner(args):
+                received.append(args)
+                write_manifest(
+                    root / "One" / "pages.json",
+                    "https://example.test/one",
+                    "One",
+                    "https://cdn.example.test/one.webp",
+                )
+                return 0
+
+            added = service.add_url(
+                "https://example.test/one",
+                root,
+                options={"language": "fr", "output_format": "original"},
+                runner=runner,
+            )
+
+            self.assertEqual(added.publication.title, "One")
+            self.assertEqual(added.tracked.publication_id, added.publication.id)
+            self.assertEqual(received[0].output_root, root.resolve())
+            self.assertTrue(received[0].output_auto_named)
+            self.assertEqual(len(service.tracked()), 1)
+
+    def test_add_url_does_not_track_a_failed_extraction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            state = LibraryState(root / ".komaforge" / "state.sqlite")
+            service = LibraryService(index, state)
+
+            with self.assertRaisesRegex(RuntimeError, "exit code 2"):
+                service.add_url(
+                    "https://example.test/one",
+                    root,
+                    runner=lambda _args: 2,
+                )
+
+            self.assertEqual(state.tracked(), ())
+
     def test_progress_must_stay_inside_the_part(self):
         with tempfile.TemporaryDirectory() as temp:
             _, index, _, service = self._service(temp)

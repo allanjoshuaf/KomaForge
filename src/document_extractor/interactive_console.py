@@ -69,6 +69,7 @@ PLATFORM_MESSAGES = {
         "library_search": "Rechercher une œuvre",
         "library_publications": "Afficher les publications et identifiants",
         "library_tracked": "Afficher les publications suivies",
+        "library_add": "Ajouter une URL et suivre la publication",
         "library_track": "Suivre une publication",
         "library_untrack": "Ne plus suivre une publication",
         "library_progress": "Enregistrer la progression",
@@ -148,6 +149,7 @@ PLATFORM_MESSAGES = {
         "library_search": "Search works",
         "library_publications": "Show publications and identifiers",
         "library_tracked": "Show tracked publications",
+        "library_add": "Add a URL and track the publication",
         "library_track": "Track a publication",
         "library_untrack": "Stop tracking a publication",
         "library_progress": "Record reading progress",
@@ -227,6 +229,7 @@ PLATFORM_MESSAGES = {
         "library_search": "Поиск произведения",
         "library_publications": "Публикации и идентификаторы",
         "library_tracked": "Отслеживаемые публикации",
+        "library_add": "Добавить URL и отслеживать публикацию",
         "library_track": "Начать отслеживание",
         "library_untrack": "Прекратить отслеживание",
         "library_progress": "Сохранить прогресс",
@@ -306,6 +309,7 @@ PLATFORM_MESSAGES = {
         "library_search": "搜索作品",
         "library_publications": "显示出版物和标识符",
         "library_tracked": "显示已跟踪出版物",
+        "library_add": "添加 URL 并跟踪出版物",
         "library_track": "跟踪出版物",
         "library_untrack": "停止跟踪出版物",
         "library_progress": "记录阅读进度",
@@ -514,12 +518,13 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
         ui.option(4, _text(ui, "library_search"))
         ui.option(5, _text(ui, "library_publications"))
         ui.option(6, _text(ui, "library_tracked"))
-        ui.option(7, _text(ui, "library_track"))
-        ui.option(8, _text(ui, "library_untrack"))
-        ui.option(9, _text(ui, "library_progress"))
-        ui.option(10, _text(ui, "back"))
+        ui.option(7, _text(ui, "library_add"))
+        ui.option(8, _text(ui, "library_track"))
+        ui.option(9, _text(ui, "library_untrack"))
+        ui.option(10, _text(ui, "library_progress"))
+        ui.option(11, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "10":
+        if choice == "11":
             return
         try:
             if choice == "1":
@@ -544,18 +549,40 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
             elif choice == "6" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_tracked"))
                 _show_tracked(ui, service)
-            elif choice == "7" and _library_ready(ui, index, library_root):
+            elif choice == "7":
+                source_url = ui.prompt(_text(ui, "url"))
+                output_format = ui.prompt(_text(ui, "format"), "original").casefold()
+                if output_format not in OUTPUT_FORMATS:
+                    raise ValueError(f"unsupported format: {output_format}")
+                scope = ui.prompt(_text(ui, "scope"), "auto").casefold()
+                if scope not in {"auto", "document", "work"}:
+                    raise ValueError(f"unsupported scope: {scope}")
+                added = service.add_url(
+                    source_url,
+                    library_root,
+                    options={
+                        "chapters": ui.prompt(_text(ui, "chapters"), "all") or "all",
+                        "language": ui.language,
+                        "output_format": output_format,
+                        "scope": scope,
+                    },
+                )
+                ui.notice(
+                    f"{_text(ui, 'library_add')} : {added.publication.title}",
+                    "success",
+                )
+            elif choice == "8" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 service.track(publication_id)
                 ui.notice(_text(ui, "library_track"), "success")
-            elif choice == "8" and _library_ready(ui, index, library_root):
+            elif choice == "9" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 removed = state.untrack(publication_id)
                 ui.notice(
                     _text(ui, "library_untrack"),
                     "success" if removed else "warning",
                 )
-            elif choice == "9" and _library_ready(ui, index, library_root):
+            elif choice == "10" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 part_id = ui.prompt(_text(ui, "part_id"))
                 position = int(ui.prompt(_text(ui, "position")))
@@ -569,7 +596,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     completed=completed,
                 )
                 ui.notice(_text(ui, "library_progress"), "success")
-            elif choice not in {str(value) for value in range(1, 11)}:
+            elif choice not in {str(value) for value in range(1, 12)}:
                 ui.error(_text(ui, "submenu_invalid"))
         except (KeyError, OSError, RuntimeError, ValueError) as exc:
             ui.error(str(exc))

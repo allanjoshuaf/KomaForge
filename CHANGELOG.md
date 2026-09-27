@@ -12,6 +12,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 - les travaux `update` inspectent la publication indexée, comparent ses parties et
   mettent uniquement les nouveautés en file, sans doublonner un téléchargement
   déjà en attente ;
+- la commande et le menu `library add` enchaînent extraction, indexation et suivi
+  d’une publication depuis son URL, sans enregistrer un échec comme un ajout ;
 - le menu interactif donne maintenant accès aux sources, aux familles de lecteurs,
   au diagnostic d’URL, à la bibliothèque locale et à la file d’attente persistante ;
 - la bibliothèque peut être reconstruite, parcourue, recherchée et suivie sans

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from contextlib import nullcontext, redirect_stdout
 from dataclasses import asdict
 from pathlib import Path
 
+from .formats import OUTPUT_FORMATS
 from .library import LibraryIndex
 from .library_service import LibraryService
 from .library_state import LibraryState
 from .paths import default_output_root
+from .terminal_ui import SUPPORTED_LANGUAGES
 
 
 def _add_paths(parser: argparse.ArgumentParser) -> None:
@@ -50,6 +54,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reconstruit atomiquement l’index depuis les manifestes",
     )
     _add_paths(rebuild)
+    add = subparsers.add_parser(
+        "add",
+        help="Extrait une URL et ajoute sa publication au suivi",
+    )
+    add.add_argument("url")
+    add.add_argument("--format", choices=OUTPUT_FORMATS, dest="output_format", default="original")
+    add.add_argument("--scope", choices=("auto", "document", "work"), default="auto")
+    add.add_argument("--chapters", default="all")
+    add.add_argument("--language", choices=SUPPORTED_LANGUAGES, default="fr")
+    add.add_argument("--workers", type=int, choices=range(1, 13), default=6)
+    add.add_argument("--watermarks", choices=("detect", "remove"), default="remove")
+    add.add_argument("--allow-host", action="append", default=[])
+    _add_paths(add)
+    _add_state_path(add)
     listing = subparsers.add_parser(
         "list",
         help="Liste les œuvres déjà indexées",
@@ -144,9 +162,40 @@ def main(argv: list[str] | None = None) -> int:
             summary = index.rebuild(root)
             _print_rebuild(summary, index_path, args.as_json)
             return 0
-        if args.command in {"track", "untrack", "tracked", "progress"}:
+        if args.command in {"add", "track", "untrack", "tracked", "progress"}:
             state = LibraryState(_state_path(args, root))
             service = LibraryService(index, state)
+            if args.command == "add":
+                extraction_output = (
+                    redirect_stdout(sys.stderr) if args.as_json else nullcontext()
+                )
+                with extraction_output:
+                    added = service.add_url(
+                        args.url,
+                        root,
+                        options={
+                            "allow_host": args.allow_host,
+                            "chapters": args.chapters,
+                            "language": args.language,
+                            "output_format": args.output_format,
+                            "scope": args.scope,
+                            "watermarks": args.watermarks,
+                            "workers": args.workers,
+                        },
+                    )
+                payload = {
+                    "publication_id": added.publication.id,
+                    "title": added.publication.title,
+                    "tracked_at": added.tracked.added_at,
+                }
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(
+                        f"Publication ajoutée et suivie : "
+                        f"{added.publication.title} ({added.publication.id})"
+                    )
+                return 0
             if args.command == "track":
                 tracked = service.track(args.publication_id)
                 payload = {
