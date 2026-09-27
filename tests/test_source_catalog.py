@@ -4,6 +4,7 @@ import unittest
 
 from document_extractor.sources import (
     BUILTIN_READER_FAMILIES,
+    BUILTIN_SOURCE_CANDIDATES,
     GenericWebSource,
     SourceMetadata,
     SourceStatus,
@@ -46,6 +47,22 @@ class SourceCatalogTests(unittest.TestCase):
             with self.subTest(source=adapter.id):
                 self.assertNotEqual(metadata.version, "unversioned")
                 self.assertTrue(set(metadata.family_ids) <= family_ids)
+
+        for candidate in BUILTIN_SOURCE_CANDIDATES:
+            with self.subTest(candidate=candidate.id):
+                self.assertTrue(set(candidate.family_ids) <= family_ids)
+                self.assertEqual(candidate.adapter_id, "generic-web")
+
+    def test_verification_dates_use_iso_format(self):
+        with self.assertRaisesRegex(ValueError, "YYYY-MM-DD"):
+            SourceMetadata(
+                languages=("fr",),
+                domains=("example.test",),
+                version="1",
+                status=SourceStatus.EXPERIMENTAL,
+                status_reason="test",
+                last_verified="27/09/2026",
+            )
 
 
 if __name__ == "__main__":

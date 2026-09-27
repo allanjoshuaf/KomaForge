@@ -7,6 +7,7 @@ import sys
 from .application import resolve_source
 from .sources import (
     BUILTIN_READER_FAMILIES,
+    BUILTIN_SOURCE_CANDIDATES,
     BrowseCapability,
     GenericWebSource,
     SearchCapability,
@@ -40,6 +41,16 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[status.value for status in SourceStatus],
         help="Filtre les familles par état",
     )
+    candidates = commands.add_parser(
+        "candidates",
+        help="Liste les sites connus sans adaptateur spécialisé",
+    )
+    candidates.add_argument("--json", action="store_true", dest="as_json")
+    candidates.add_argument(
+        "--status",
+        choices=[status.value for status in SourceStatus],
+        help="Filtre les sites candidats par état",
+    )
     match = commands.add_parser("match", help="Indique la source choisie pour une URL")
     match.add_argument("url")
     match.add_argument("--json", action="store_true", dest="as_json")
@@ -58,6 +69,7 @@ def _source_payload(adapter, *, specialized: bool) -> dict:
         "status": metadata.status.value,
         "status_reason": metadata.status_reason,
         "families": list(metadata.family_ids),
+        "last_verified": metadata.last_verified,
         "capabilities": {
             "url": True,
             "publication": True,
@@ -88,6 +100,23 @@ def _families() -> tuple[dict, ...]:
             "description": family.description,
         }
         for family in BUILTIN_READER_FAMILIES
+    )
+
+
+def _candidates() -> tuple[dict, ...]:
+    return tuple(
+        {
+            "id": candidate.id,
+            "name": candidate.name,
+            "languages": list(candidate.languages),
+            "domains": list(candidate.domains),
+            "status": candidate.status.value,
+            "status_reason": candidate.status_reason,
+            "adapter_id": candidate.adapter_id,
+            "families": list(candidate.family_ids),
+            "last_verified": candidate.last_verified,
+        }
+        for candidate in BUILTIN_SOURCE_CANDIDATES
     )
 
 
@@ -131,6 +160,26 @@ def main(argv: list[str] | None = None) -> int:
                     print(
                         f"{family['id']} | {family['name']} | "
                         f"{family['status']} | {family['description']}"
+                    )
+            return 0
+
+        if args.command == "candidates":
+            candidates = _candidates()
+            if args.status:
+                candidates = tuple(
+                    candidate
+                    for candidate in candidates
+                    if candidate["status"] == args.status
+                )
+            if args.as_json:
+                print(json.dumps(candidates, ensure_ascii=False, sort_keys=True))
+            else:
+                for candidate in candidates:
+                    print(
+                        f"{candidate['id']} | {candidate['name']} | "
+                        f"{candidate['status']} | {','.join(candidate['languages'])} | "
+                        f"{','.join(candidate['domains'])} | {candidate['adapter_id']} | "
+                        f"vérifié {candidate['last_verified'] or 'jamais'}"
                     )
             return 0
 

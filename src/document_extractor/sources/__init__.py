@@ -3,7 +3,9 @@
 from .calameo import CalameoSource
 from .catalog import (
     BUILTIN_READER_FAMILIES,
+    BUILTIN_SOURCE_CANDIDATES,
     ReaderFamily,
+    SourceCandidate,
     SourceMetadata,
     SourceStatus,
     metadata_for,
@@ -41,6 +43,7 @@ def build_default_registry() -> SourceRegistry:
 __all__ = [
     "AmbiguousSourceError",
     "BUILTIN_READER_FAMILIES",
+    "BUILTIN_SOURCE_CANDIDATES",
     "BrowseCapability",
     "CalameoSource",
     "DuplicateSourceError",
@@ -54,6 +57,7 @@ __all__ = [
     "SearchCapability",
     "SearchPage",
     "SourceAdapter",
+    "SourceCandidate",
     "SourceMatchError",
     "SourceMetadata",
     "SourceReference",

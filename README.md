@@ -248,13 +248,18 @@ komaforge sources list --status validated
 komaforge sources list --status degraded
 komaforge sources list --status experimental
 komaforge sources families
+komaforge sources candidates
 komaforge sources match "https://global.manga-up.com/manga/126"
 ```
 
 `list` publie pour chaque adaptateur sa langue, ses domaines, sa version, ses
 capacités et son état : `validated`, `degraded`, `experimental` ou `offline`.
 `families` garde séparées les stratégies réutilisables (lecteur paginé, vertical,
-document direct ou parties sélectionnables). La commande `match` montre clairement
+document direct ou parties sélectionnables). `candidates` liste les sites déjà
+observés avec le fallback mais qui n’ont pas encore d’adaptateur spécialisé; ils ne
+sont donc jamais confondus avec les sources validées. La date du dernier contrôle
+live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.
+La commande `match` montre clairement
 si l’URL utilise une source spécialisée ou le fallback web générique. Elle ne
 contacte pas le site et ne masque donc jamais l’échec ultérieur d’un adaptateur
 reconnu. Un statut décrit la fiabilité de l’adaptateur, pas la complétude d’un livre :

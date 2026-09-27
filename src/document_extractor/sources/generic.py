@@ -94,6 +94,7 @@ class GenericWebSource:
             "direct-document",
             "selectable-parts",
         ),
+        last_verified="2026-09-27",
     )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:

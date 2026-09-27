@@ -155,6 +155,7 @@ class CalameoSource:
         status=SourceStatus.VALIDATED,
         status_reason="publication metadata and page coverage are regression-tested",
         family_ids=("paginated-images",),
+        last_verified="2026-09-27",
     )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:

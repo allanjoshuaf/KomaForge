@@ -29,6 +29,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertTrue(generic["capabilities"]["resources"])
 
         self.assertEqual(sources[0]["status"], "validated")
+        self.assertEqual(sources[0]["last_verified"], "2026-09-27")
         self.assertEqual(sources[1]["languages"], ["en"])
         self.assertEqual(sources[2]["status"], "degraded")
 
@@ -70,6 +71,25 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(
             [family["id"] for family in families],
             ["selectable-parts"],
+        )
+
+    def test_candidates_are_distinct_from_specialized_sources(self):
+        output = StringIO()
+
+        with redirect_stdout(output):
+            code = main(["candidates", "--status", "experimental", "--json"])
+        candidates = json.loads(output.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            [candidate["id"] for candidate in candidates],
+            ["sushiscan", "mangareader-pro"],
+        )
+        self.assertTrue(
+            all(candidate["adapter_id"] == "generic-web" for candidate in candidates)
+        )
+        self.assertTrue(
+            all(candidate["last_verified"] == "2026-09-27" for candidate in candidates)
         )
 
     def test_match_explains_specialized_routing(self):

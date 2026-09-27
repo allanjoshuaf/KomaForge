@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
 
 
@@ -16,6 +17,16 @@ def _require_text_tuple(values: tuple[str, ...], field_name: str) -> None:
         raise ValueError(f"{field_name} must be a non-empty tuple")
     for value in values:
         _require_text(value, field_name)
+
+
+def _require_iso_date(value: str | None, field_name: str) -> None:
+    if value is None:
+        return
+    _require_text(value, field_name)
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must use YYYY-MM-DD") from exc
 
 
 class SourceStatus(str, Enum):
@@ -37,6 +48,7 @@ class SourceMetadata:
     status: SourceStatus
     status_reason: str
     family_ids: tuple[str, ...] = ()
+    last_verified: str | None = None
 
     def __post_init__(self) -> None:
         _require_text_tuple(self.languages, "source language")
@@ -49,6 +61,7 @@ class SourceMetadata:
             raise ValueError("family_ids must be a tuple")
         for family_id in self.family_ids:
             _require_text(family_id, "family id")
+        _require_iso_date(self.last_verified, "last_verified")
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +79,33 @@ class ReaderFamily:
         if not isinstance(self.status, SourceStatus):
             raise ValueError("status must be a SourceStatus")
         _require_text(self.description, "family description")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceCandidate:
+    """Known site handled by a generic family, without a dedicated adapter."""
+
+    id: str
+    name: str
+    languages: tuple[str, ...]
+    domains: tuple[str, ...]
+    status: SourceStatus
+    status_reason: str
+    adapter_id: str
+    family_ids: tuple[str, ...]
+    last_verified: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_text(self.id, "candidate id")
+        _require_text(self.name, "candidate name")
+        _require_text_tuple(self.languages, "candidate language")
+        _require_text_tuple(self.domains, "candidate domain")
+        if not isinstance(self.status, SourceStatus):
+            raise ValueError("status must be a SourceStatus")
+        _require_text(self.status_reason, "status reason")
+        _require_text(self.adapter_id, "adapter id")
+        _require_text_tuple(self.family_ids, "family id")
+        _require_iso_date(self.last_verified, "last_verified")
 
 
 BUILTIN_READER_FAMILIES = (
@@ -92,6 +132,32 @@ BUILTIN_READER_FAMILIES = (
         name="Parties sélectionnables",
         status=SourceStatus.EXPERIMENTAL,
         description="Volumes, chapitres ou sections exposés par un contrôle du lecteur.",
+    ),
+)
+
+
+BUILTIN_SOURCE_CANDIDATES = (
+    SourceCandidate(
+        id="sushiscan",
+        name="SushiScan",
+        languages=("fr",),
+        domains=("sushiscan.net",),
+        status=SourceStatus.EXPERIMENTAL,
+        status_reason="live baseline works through the generic adapter but the site may change",
+        adapter_id="generic-web",
+        family_ids=("vertical-images",),
+        last_verified="2026-09-27",
+    ),
+    SourceCandidate(
+        id="mangareader-pro",
+        name="MangaReader.pro",
+        languages=("en",),
+        domains=("mangareader.pro", "www.mangareader.pro"),
+        status=SourceStatus.EXPERIMENTAL,
+        status_reason="live baseline works through the generic adapter with transient loading",
+        adapter_id="generic-web",
+        family_ids=("vertical-images",),
+        last_verified="2026-09-27",
     ),
 )
 

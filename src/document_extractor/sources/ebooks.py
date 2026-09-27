@@ -121,6 +121,7 @@ class EBooksSource:
         status=SourceStatus.DEGRADED,
         status_reason="reader sessions may expose only a limited sample of the publication",
         family_ids=("direct-document",),
+        last_verified="2026-09-27",
     )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:
