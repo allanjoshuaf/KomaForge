@@ -168,6 +168,8 @@ class Resource:
     media_type: str | None = None
     filename: str | None = None
     sha256: str | None = None
+    sensitive_locator: bool = False
+    public_locator: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -188,13 +190,22 @@ class Resource:
                 character not in "0123456789abcdefABCDEF" for character in self.sha256
             ):
                 raise ValueError("sha256 must contain exactly 64 hexadecimal characters")
+        if not isinstance(self.sensitive_locator, bool):
+            raise ValueError("sensitive_locator must be a boolean")
+        if self.public_locator is not None:
+            _require_text(self.public_locator, "public_locator")
         object.__setattr__(self, "metadata", _metadata_dict(self.metadata))
 
     def to_manifest(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "kind": self.kind.value,
-            "locator": self.locator,
+            "locator": (
+                self.public_locator
+                if self.sensitive_locator
+                else self.public_locator or self.locator
+            ),
+            "sensitive_locator": self.sensitive_locator,
             "position": self.position,
             "media_type": self.media_type,
             "filename": self.filename,

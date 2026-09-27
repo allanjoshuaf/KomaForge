@@ -165,6 +165,20 @@ class DomainModelTests(unittest.TestCase):
                 resources=(first, second),
             )
 
+    def test_sensitive_resource_locator_is_never_written_to_a_manifest(self):
+        resource = Resource(
+            id="session-document",
+            kind=ResourceKind.EPUB,
+            locator="https://reader.example/file.epub?uid=secret&hash=secret",
+            position=1,
+            sensitive_locator=True,
+        )
+
+        manifest = resource.to_manifest()
+
+        self.assertIsNone(manifest["locator"])
+        self.assertTrue(manifest["sensitive_locator"])
+
 
 if __name__ == "__main__":
     unittest.main()
