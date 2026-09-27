@@ -15,6 +15,7 @@ from .contracts import (
     UpdateResult,
 )
 from .generic import GenericWebSource
+from .manga_up import MangaUpSource
 from .registry import (
     AmbiguousSourceError,
     DuplicateSourceError,
@@ -27,7 +28,7 @@ from .registry import (
 def build_default_registry() -> SourceRegistry:
     """Build the registry of specialized sources shipped with KomaForge."""
 
-    return SourceRegistry((CalameoSource(),))
+    return SourceRegistry((CalameoSource(), MangaUpSource()))
 
 __all__ = [
     "AmbiguousSourceError",
@@ -37,6 +38,7 @@ __all__ = [
     "GenericWebSource",
     "MatchContext",
     "MatchResult",
+    "MangaUpSource",
     "ResourceSet",
     "SearchCapability",
     "SearchPage",
