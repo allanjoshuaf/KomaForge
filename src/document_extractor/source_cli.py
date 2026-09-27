@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _source_payload(adapter, *, specialized: bool) -> dict:
+def describe_source(adapter, *, specialized: bool) -> dict:
     metadata = metadata_for(adapter)
     return {
         "id": adapter.id,
@@ -82,16 +82,16 @@ def _source_payload(adapter, *, specialized: bool) -> dict:
     }
 
 
-def _sources() -> tuple[dict, ...]:
+def source_records() -> tuple[dict, ...]:
     registry = build_default_registry()
     specialized = tuple(
-        _source_payload(adapter, specialized=True)
+        describe_source(adapter, specialized=True)
         for adapter in registry.all()
     )
-    return specialized + (_source_payload(GenericWebSource(), specialized=False),)
+    return specialized + (describe_source(GenericWebSource(), specialized=False),)
 
 
-def _families() -> tuple[dict, ...]:
+def family_records() -> tuple[dict, ...]:
     return tuple(
         {
             "id": family.id,
@@ -103,7 +103,7 @@ def _families() -> tuple[dict, ...]:
     )
 
 
-def _candidates() -> tuple[dict, ...]:
+def candidate_records() -> tuple[dict, ...]:
     return tuple(
         {
             "id": candidate.id,
@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "list":
-            sources = _sources()
+            sources = source_records()
             if args.status:
                 sources = tuple(
                     source for source in sources if source["status"] == args.status
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "families":
-            families = _families()
+            families = family_records()
             if args.status:
                 families = tuple(
                     family for family in families if family["status"] == args.status
@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "candidates":
-            candidates = _candidates()
+            candidates = candidate_records()
             if args.status:
                 candidates = tuple(
                     candidate
@@ -185,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
 
         route = resolve_source(args.url)
         payload = {
-            **_source_payload(route.adapter, specialized=route.specialized),
+            **describe_source(route.adapter, specialized=route.specialized),
             "confidence": route.match.confidence.value,
             "reason": route.match.reason,
         }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import textwrap
 import time
 import unicodedata
 from dataclasses import dataclass, field
@@ -450,6 +451,22 @@ class TerminalUI:
 
     def key_value(self, label: str, value: object) -> None:
         print(f"  {self._style(label + ':', '1')} {value}", file=self.stream)
+
+    def item(self, label: str, detail: str | None = None) -> None:
+        print(f"  {self._style('•', '1;36')} {self._style(label, '1')}", file=self.stream)
+        if detail:
+            for line in textwrap.wrap(
+                detail,
+                width=68,
+                break_long_words=False,
+                break_on_hyphens=False,
+            ):
+                print(self._style(f"      {line}", "2"), file=self.stream)
+
+    def notice(self, message: str, tone: str = "info") -> None:
+        colors = {"info": "36", "success": "1;32", "warning": "1;33"}
+        marker = {"info": "i", "success": "OK", "warning": "!"}.get(tone, "i")
+        print(self._style(f"  [{marker}] {message}", colors.get(tone, "36")), file=self.stream)
 
     def error(self, message: str) -> None:
         print(self._style(f"{self.text('error')} : {message}", "1;31"), file=self.stream)

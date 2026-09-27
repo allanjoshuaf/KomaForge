@@ -143,15 +143,9 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
     args.language = choose_language(getattr(args, "language", "fr"))
     ui = TerminalUI(args.language)
     ui.header()
-    ui.section(ui.text("menu_title"))
-    ui.option(1, ui.text("menu_auto"), ui.text("menu_auto_hint"))
-    ui.option(2, ui.text("menu_advanced"), ui.text("menu_advanced_hint"))
-    ui.option(3, ui.text("menu_quit"))
-    choice = ui.prompt(ui.text("choice"), "1") or "1"
-    if choice == "3":
-        raise SystemExit(0)
-    if choice not in {"1", "2"}:
-        raise SystemExit(ui.text("invalid_choice"))
+    from .interactive_console import interactive_hub
+
+    extraction_mode = interactive_hub(ui)
 
     ui.section(ui.text("source_title"))
     args.url = ui.prompt(ui.text("url_prompt"))
@@ -178,7 +172,7 @@ def interactive_setup(args: argparse.Namespace) -> argparse.Namespace:
     args.output_format = format_map[format_choice]
     args.wait_for_user = ask_yes_no(ui.text("manual_login"), args.language)
 
-    if choice == "2":
+    if extraction_mode == "advanced":
         ui.section(ui.text("advanced_title"))
         args.scope = ui.prompt(ui.text("scope_prompt"), "auto").casefold() or "auto"
         if args.scope not in {"auto", "document", "work"}:

@@ -188,6 +188,11 @@ Après l'installation, cette forme fonctionne aussi :
 komaforge "https://votre-site.com/document" --format epub
 ```
 
+Sans URL, le menu interactif ouvert par KomaForge réunit désormais l’extraction
+guidée, les options avancées, le catalogue des sources, la bibliothèque locale et
+la file d’attente. Les commandes détaillées ci-dessous restent disponibles pour
+les scripts et l’automatisation.
+
 ## Bibliothèque locale
 
 KomaForge peut reconstruire un index SQLite à partir des manifestes déjà présents.

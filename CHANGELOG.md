@@ -4,6 +4,12 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- le menu interactif donne maintenant accès aux sources, aux familles de lecteurs,
+  au diagnostic d’URL, à la bibliothèque locale et à la file d’attente persistante ;
+- la bibliothèque peut être reconstruite, parcourue, recherchée et suivie sans
+  quitter l’interface ; la progression de lecture y est également enregistrable ;
+- les inspections, téléchargements et vérifications de mise à jour peuvent être
+  ajoutés, consultés, relancés ou annulés depuis le même menu ;
 - nouveau menu terminal structuré, coloré lorsque le terminal le permet et
   utilisable sans couleur ; interface disponible en français, anglais, russe
   et chinois, y compris l'aide `--help` et les principaux diagnostics ;
