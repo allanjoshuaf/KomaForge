@@ -197,6 +197,9 @@ tout moment, sans modifier les livres ni les archives.
 ```powershell
 komaforge-library rebuild
 komaforge-library list
+komaforge-library track IDENTIFIANT_PUBLICATION
+komaforge-library tracked
+komaforge-library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
 ```
 
 Par défaut, la commande lit `C:\Extractions\Manga` sous Windows et place l’index
@@ -208,6 +211,9 @@ Lorsqu’une même source possède plusieurs anciens manifestes, la reconstructi
 garde une seule publication canonique. Elle privilégie d’abord son état de
 complétude, puis l’intégrité vérifiable de son artefact et enfin sa date. Les URL de
 ressources portant des jetons temporaires ne sont pas copiées dans l’index.
+Le suivi et la progression sont conservés séparément dans
+`.komaforge/state.sqlite`; reconstruire `library.sqlite` ne les efface pas. Les
+identifiants nécessaires sont disponibles avec `komaforge-library list --json`.
 
 Les opérations différées utilisent une seconde base, indépendante de l’index :
 

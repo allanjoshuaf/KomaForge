@@ -7,6 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 
 from .library import SCHEMA_VERSION, LibraryIndex
+from .library_service import LibraryService
+from .library_state import LibraryState
 from .paths import default_output_root
 
 
@@ -30,6 +32,14 @@ def _add_paths(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_state_path(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--state",
+        type=Path,
+        help="État de lecture SQLite (défaut : ROOT/.komaforge/state.sqlite)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="komaforge-library",
@@ -46,6 +56,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Liste les œuvres déjà indexées",
     )
     _add_paths(listing)
+    track = subparsers.add_parser("track", help="Ajoute une publication à la bibliothèque")
+    track.add_argument("publication_id")
+    _add_paths(track)
+    _add_state_path(track)
+    untrack = subparsers.add_parser("untrack", help="Retire une publication suivie")
+    untrack.add_argument("publication_id")
+    _add_paths(untrack)
+    _add_state_path(untrack)
+    tracked = subparsers.add_parser("tracked", help="Liste les publications suivies")
+    _add_paths(tracked)
+    _add_state_path(tracked)
+    progress = subparsers.add_parser("progress", help="Enregistre la progression de lecture")
+    progress.add_argument("publication_id")
+    progress.add_argument("part_id")
+    progress.add_argument("resource_position", type=int)
+    progress.add_argument("--complete", action="store_true")
+    _add_paths(progress)
+    _add_state_path(progress)
     return parser
 
 
@@ -57,6 +85,14 @@ def _resolved_paths(args: argparse.Namespace) -> tuple[Path, Path]:
         else root / ".komaforge" / "library.sqlite"
     )
     return root, index
+
+
+def _state_path(args: argparse.Namespace, root: Path) -> Path:
+    return (
+        args.state.expanduser().resolve()
+        if getattr(args, "state", None)
+        else root / ".komaforge" / "state.sqlite"
+    )
 
 
 def _print_rebuild(summary, index_path: Path, as_json: bool) -> None:
@@ -99,6 +135,72 @@ def main(argv: list[str] | None = None) -> int:
             summary = index.rebuild(root)
             _print_rebuild(summary, index_path, args.as_json)
             return 0
+        if args.command in {"track", "untrack", "tracked", "progress"}:
+            state = LibraryState(_state_path(args, root))
+            service = LibraryService(index, state)
+            if args.command == "track":
+                tracked = service.track(args.publication_id)
+                payload = {
+                    "publication_id": tracked.publication_id,
+                    "added_at": tracked.added_at,
+                }
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(f"Publication suivie : {tracked.publication_id}")
+                return 0
+            if args.command == "untrack":
+                removed = state.untrack(args.publication_id)
+                if args.as_json:
+                    print(json.dumps({"removed": removed}, sort_keys=True))
+                else:
+                    print("Publication retirée." if removed else "Publication non suivie.")
+                return 0 if removed else 2
+            if args.command == "progress":
+                progress = service.record_progress(
+                    args.publication_id,
+                    args.part_id,
+                    args.resource_position,
+                    completed=args.complete,
+                )
+                payload = {
+                    "publication_id": progress.publication_id,
+                    "part_id": progress.part_id,
+                    "resource_position": progress.resource_position,
+                    "completed": progress.completed,
+                    "updated_at": progress.updated_at,
+                }
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(
+                        f"Progression : {progress.part_id} — "
+                        f"ressource {progress.resource_position}"
+                    )
+                return 0
+
+            views = service.tracked()
+            payload = [
+                {
+                    "publication_id": view.publication.id,
+                    "title": view.publication.title,
+                    "completed_parts": view.completed_parts,
+                    "unread_parts": view.unread_parts,
+                    "added_at": view.tracked.added_at,
+                }
+                for view in views
+            ]
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            elif not payload:
+                print("Aucune publication suivie.")
+            else:
+                for item in payload:
+                    print(
+                        f"{item['title']} | {item['unread_parts']} non lue(s) | "
+                        f"{item['completed_parts']} terminée(s)"
+                    )
+            return 0
         if index.schema_version() != SCHEMA_VERSION:
             print(
                 "Index absent ou incompatible. Lancez d’abord "
@@ -108,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         _print_works(index.list_works(), args.as_json)
         return 0
-    except (OSError, ValueError) as exc:
+    except (KeyError, OSError, RuntimeError, ValueError) as exc:
         print(f"Erreur de bibliothèque : {exc}", file=sys.stderr)
         return 1
 

@@ -91,6 +91,81 @@ class LibraryCliTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("rebuild", error.getvalue())
 
+    def test_track_progress_and_tracked_views(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            index = Path(temp) / "library.sqlite"
+            state = Path(temp) / "state.sqlite"
+            write_manifest(root / "One" / "pages.json")
+            with redirect_stdout(StringIO()):
+                self.assertEqual(
+                    main(
+                        [
+                            "rebuild",
+                            "--root",
+                            str(root),
+                            "--index",
+                            str(index),
+                        ]
+                    ),
+                    0,
+                )
+            from document_extractor.library import LibraryIndex
+
+            publication = next(LibraryIndex(index).iter_publications())
+            normalized = LibraryIndex(index).load_publication(publication["id"])
+            part_id = normalized.parts[0].id
+
+            with redirect_stdout(StringIO()):
+                track_code = main(
+                    [
+                        "track",
+                        publication["id"],
+                        "--root",
+                        str(root),
+                        "--index",
+                        str(index),
+                        "--state",
+                        str(state),
+                    ]
+                )
+                progress_code = main(
+                    [
+                        "progress",
+                        publication["id"],
+                        part_id,
+                        "1",
+                        "--complete",
+                        "--root",
+                        str(root),
+                        "--index",
+                        str(index),
+                        "--state",
+                        str(state),
+                    ]
+                )
+            output = StringIO()
+            with redirect_stdout(output):
+                tracked_code = main(
+                    [
+                        "tracked",
+                        "--root",
+                        str(root),
+                        "--index",
+                        str(index),
+                        "--state",
+                        str(state),
+                        "--json",
+                    ]
+                )
+            tracked = json.loads(output.getvalue())
+
+            self.assertEqual(track_code, 0)
+            self.assertEqual(progress_code, 0)
+            self.assertEqual(tracked_code, 0)
+            self.assertEqual(tracked[0]["title"], "One")
+            self.assertEqual(tracked[0]["unread_parts"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
