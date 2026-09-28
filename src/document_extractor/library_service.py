@@ -47,6 +47,7 @@ class ReadingHistoryView:
 
 ExtractionRunner = Callable[[Namespace], int]
 ArtifactOpener = Callable[[Path], None]
+ReaderLauncher = Callable[..., None]
 
 
 def _default_artifact_opener(path: Path) -> None:
@@ -250,6 +251,71 @@ class LibraryService:
         path = paths[0]
         (opener or _default_artifact_opener)(path)
         return path
+
+    def read_artifact(
+        self,
+        publication_id: str,
+        *,
+        launcher: ReaderLauncher | None = None,
+    ) -> Path:
+        """Read a CBZ or image folder locally and persist its page position."""
+
+        from .reader import ReaderDocument, serve_reader
+
+        publication = self.index.load_publication(publication_id)
+        if publication is None:
+            raise KeyError(publication_id)
+        if not publication.parts:
+            raise ValueError("publication has no readable part")
+        paths = self.index.artifact_paths(publication_id)
+        if not paths:
+            raise FileNotFoundError("publication has no available local artifact")
+
+        document = None
+        unsupported: ValueError | None = None
+        for path in paths:
+            try:
+                document = ReaderDocument.from_path(path)
+                break
+            except ValueError as exc:
+                unsupported = exc
+        if document is None:
+            if unsupported is not None:
+                raise unsupported
+            raise ValueError("publication has no artifact supported by the internal reader")
+
+        part = min(publication.parts, key=lambda item: item.position)
+        if part.resources and len(document.pages) != len(part.resources):
+            raise ValueError(
+                "artifact page count does not match the indexed part "
+                f"({len(document.pages)} != {len(part.resources)})"
+            )
+        self.track(publication.id)
+        current = next(
+            (
+                item
+                for item in self.state.progress(publication.id)
+                if item.part_id == part.id
+            ),
+            None,
+        )
+        start_position = current.resource_position if current else 1
+
+        def save_progress(position: int, completed: bool) -> None:
+            self.record_progress(
+                publication.id,
+                part.id,
+                position,
+                completed=completed,
+            )
+
+        (launcher or serve_reader)(
+            document,
+            title=publication.title,
+            start_position=start_position,
+            progress_callback=save_progress,
+        )
+        return document.path
 
     def history(self) -> tuple[ReadingHistoryView, ...]:
         """Return known reading progress with the most recent item first."""

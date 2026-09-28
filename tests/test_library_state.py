@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from document_extractor.library import LibraryIndex
@@ -226,6 +227,41 @@ class LibraryStateTests(unittest.TestCase):
 
             self.assertEqual(path, artifact.resolve())
             self.assertEqual(opened, [artifact.resolve()])
+
+    def test_read_artifact_tracks_and_persists_reader_progress(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            manifest = root / "One" / "pages.json"
+            write_manifest(
+                manifest,
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            artifact = manifest.parent / "one.cbz"
+            with zipfile.ZipFile(artifact, "w") as archive:
+                archive.writestr("page-0001.webp", b"page")
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            payload["artifact"] = {"path": artifact.name}
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            state = LibraryState(root / ".komaforge" / "state.sqlite")
+            service = LibraryService(index, state)
+            publication = index.load_publication(index.list_publications()[0]["id"])
+            launched = []
+
+            def launcher(document, **options):
+                launched.append((document, options))
+                options["progress_callback"](1, True)
+
+            path = service.read_artifact(publication.id, launcher=launcher)
+
+            self.assertEqual(path, artifact.resolve())
+            self.assertEqual(launched[0][0].pages[0].name, "page-0001.webp")
+            self.assertEqual(launched[0][1]["start_position"], 1)
+            self.assertEqual(state.tracked()[0].publication_id, publication.id)
+            self.assertTrue(state.progress(publication.id)[0].completed)
 
 
 if __name__ == "__main__":

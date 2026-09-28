@@ -47,7 +47,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             root = Path(temp)
             stream = StringIO()
             ui = TerminalUI("fr", stream=stream)
-            answers = iter(("4", "12", "1", "16", "1"))
+            answers = iter(("4", "13", "1", "17", "1"))
 
             with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
                 mode = interactive_hub(ui, root=root)
@@ -59,6 +59,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             self.assertIn("[OK] Reconstruire l’index", rendered)
             self.assertIn("Œuvres: 0", rendered)
             self.assertIn("Suivies: 0", rendered)
+            self.assertIn("Lire dans KomaForge", rendered)
 
     def test_job_can_be_added_and_listed_from_the_hub(self):
         with tempfile.TemporaryDirectory() as temp:

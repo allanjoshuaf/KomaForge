@@ -90,6 +90,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     open_parser.add_argument("publication_id")
     _add_paths(open_parser)
+    read = subparsers.add_parser(
+        "read",
+        help="Lit un CBZ ou un dossier d’images dans le lecteur local",
+    )
+    read.add_argument("publication_id")
+    _add_paths(read)
+    _add_state_path(read)
     status = subparsers.add_parser("status", help="Résume la santé de la bibliothèque")
     _add_paths(status)
     search = subparsers.add_parser("search", help="Recherche dans la bibliothèque locale")
@@ -202,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             "history",
             "update",
             "progress",
+            "read",
         }:
             state = LibraryState(_state_path(args, root))
             service = LibraryService(index, state)
@@ -237,6 +245,15 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 return 0
             index.ensure(root)
+            if args.command == "read":
+                reader_output = redirect_stdout(sys.stderr) if args.as_json else nullcontext()
+                with reader_output:
+                    path = service.read_artifact(args.publication_id)
+                if args.as_json:
+                    print(json.dumps({"path": str(path)}, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(f"Lecture terminée : {path}")
+                return 0
             if args.command == "track":
                 tracked = service.track(args.publication_id)
                 payload = {

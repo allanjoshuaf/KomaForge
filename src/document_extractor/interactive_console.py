@@ -68,6 +68,7 @@ PLATFORM_MESSAGES = {
         "library_status": "Tableau de bord",
         "library_browse": "Consulter",
         "library_actions": "Actions",
+        "library_read": "Lire dans KomaForge",
         "library_open": "Ouvrir un téléchargement",
         "library_rebuild": "Reconstruire l’index",
         "library_list": "Lister les œuvres",
@@ -160,6 +161,7 @@ PLATFORM_MESSAGES = {
         "library_status": "Dashboard",
         "library_browse": "Browse",
         "library_actions": "Actions",
+        "library_read": "Read in KomaForge",
         "library_open": "Open a download",
         "library_rebuild": "Rebuild the index",
         "library_list": "List works",
@@ -252,6 +254,7 @@ PLATFORM_MESSAGES = {
         "library_status": "Состояние",
         "library_browse": "Просмотр",
         "library_actions": "Действия",
+        "library_read": "Читать в KomaForge",
         "library_open": "Открыть загрузку",
         "library_rebuild": "Перестроить индекс",
         "library_list": "Список произведений",
@@ -344,6 +347,7 @@ PLATFORM_MESSAGES = {
         "library_status": "概览",
         "library_browse": "浏览",
         "library_actions": "操作",
+        "library_read": "在 KomaForge 中阅读",
         "library_open": "打开下载内容",
         "library_rebuild": "重建索引",
         "library_list": "列出作品",
@@ -619,21 +623,22 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
         ui.option(7, _text(ui, "library_unread"))
         ui.option(8, _text(ui, "library_history"))
         ui.section(_text(ui, "library_actions"))
-        ui.option(9, _text(ui, "library_open"))
-        ui.option(10, _text(ui, "library_add"))
-        ui.option(11, _text(ui, "library_update"))
-        ui.option(12, _text(ui, "library_rebuild"))
-        ui.option(13, _text(ui, "library_track"))
-        ui.option(14, _text(ui, "library_untrack"))
-        ui.option(15, _text(ui, "library_progress"))
-        ui.option(16, _text(ui, "back"))
+        ui.option(9, _text(ui, "library_read"))
+        ui.option(10, _text(ui, "library_open"))
+        ui.option(11, _text(ui, "library_add"))
+        ui.option(12, _text(ui, "library_update"))
+        ui.option(13, _text(ui, "library_rebuild"))
+        ui.option(14, _text(ui, "library_track"))
+        ui.option(15, _text(ui, "library_untrack"))
+        ui.option(16, _text(ui, "library_progress"))
+        ui.option(17, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "16":
+        if choice == "17":
             return
         try:
             if choice == "1":
                 _show_library_status(ui, index, state, library_root)
-            elif choice == "12":
+            elif choice == "13":
                 summary = index.rebuild(library_root)
                 ui.notice(_text(ui, "library_rebuild"), "success")
                 ui.key_value(_text(ui, "works"), summary.works)
@@ -662,7 +667,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
             elif choice == "8" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_history"))
                 _show_history(ui, service)
-            elif choice == "11" and _library_ready(ui, index, library_root):
+            elif choice == "12" and _library_ready(ui, index, library_root):
                 queued = service.queue_updates(
                     JobQueue(library_root / ".komaforge" / "jobs.sqlite")
                 )
@@ -672,9 +677,13 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                 )
             elif choice == "9" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
+                path = service.read_artifact(publication_id)
+                ui.notice(f"{_text(ui, 'library_read')} : {path.name}", "success")
+            elif choice == "10" and _library_ready(ui, index, library_root):
+                publication_id = ui.prompt(_text(ui, "publication_id"))
                 path = service.open_artifact(publication_id)
                 ui.notice(f"{_text(ui, 'library_open')} : {path.name}", "success")
-            elif choice == "10":
+            elif choice == "11":
                 source_url = ui.prompt(_text(ui, "url"))
                 output_format = ui.prompt(_text(ui, "format"), "original").casefold()
                 if output_format not in OUTPUT_FORMATS:
@@ -696,18 +705,18 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     f"{_text(ui, 'library_add')} : {added.publication.title}",
                     "success",
                 )
-            elif choice == "13" and _library_ready(ui, index, library_root):
+            elif choice == "14" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 service.track(publication_id)
                 ui.notice(_text(ui, "library_track"), "success")
-            elif choice == "14" and _library_ready(ui, index, library_root):
+            elif choice == "15" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 removed = state.untrack(publication_id)
                 ui.notice(
                     _text(ui, "library_untrack"),
                     "success" if removed else "warning",
                 )
-            elif choice == "15" and _library_ready(ui, index, library_root):
+            elif choice == "16" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 part_id = ui.prompt(_text(ui, "part_id"))
                 position = int(ui.prompt(_text(ui, "position")))
@@ -721,7 +730,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     completed=completed,
                 )
                 ui.notice(_text(ui, "library_progress"), "success")
-            elif choice not in {str(value) for value in range(1, 17)}:
+            elif choice not in {str(value) for value in range(1, 18)}:
                 ui.error(_text(ui, "submenu_invalid"))
         except (KeyError, OSError, RuntimeError, ValueError) as exc:
             ui.error(str(exc))

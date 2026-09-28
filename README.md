@@ -207,6 +207,7 @@ komaforge library list
 komaforge library search "titre"
 komaforge library publications --json
 komaforge library downloaded
+komaforge library read IDENTIFIANT_PUBLICATION
 komaforge library open IDENTIFIANT_PUBLICATION
 komaforge library status
 komaforge library track IDENTIFIANT_PUBLICATION
@@ -242,9 +243,15 @@ terminée et sa dernière position enregistrée, globalement ou pour une publica
 doublon lorsqu’une vérification identique est déjà en attente ou en cours.
 `downloaded` ne retient que les artefacts encore présents et `history` résout la
 progression persistante vers les titres de publication et de partie actuels.
+`read` ouvre les CBZ et les dossiers d’images dans le lecteur local de KomaForge.
+Il fonctionne hors ligne sur `127.0.0.1`, avec une adresse de session aléatoire,
+sans téléverser les pages. La position est enregistrée automatiquement ; les
+flèches, Page précédente/suivante, Début, Fin, `F` et `Q` sont utilisables au
+clavier. Le bouton **Fermer** ou `Q` arrête aussi le serveur local.
 `open` confie le premier artefact disponible à l’application locale associée à son
-format. Le chemin doit rester dans le dossier de la publication ; un ancien
-manifeste qui tente d’en sortir est refusé.
+format. PDF, EPUB et CBR restent ainsi confiés à leur lecteur natif tant que leur
+rendu interne n’est pas pris en charge. Le chemin doit rester dans le dossier de la
+publication ; un ancien manifeste qui tente d’en sortir est refusé.
 
 Les opérations différées utilisent une seconde base, indépendante de l’index :
 

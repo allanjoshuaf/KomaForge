@@ -4,6 +4,10 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- un lecteur local intégré ouvre maintenant les CBZ et dossiers d’images, reprend
+  la dernière page, enregistre la progression et reste utilisable au clavier sur
+  ordinateur comme sur écran étroit ; PDF, EPUB et CBR conservent l’ouverture
+  native explicite ;
 - les statuts de source distinguent maintenant la compatibilité, le type
   d’intégration et les conditions d’accès ; SushiScan et MangaReader.pro sont
   répertoriés comme validés via le moteur générique ;

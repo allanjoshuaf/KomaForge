@@ -6,8 +6,10 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from document_extractor.library import LibraryIndex
+from document_extractor.library_service import LibraryService
 from document_extractor.library_cli import main
 
 
@@ -50,6 +52,36 @@ def write_manifest(path: Path) -> None:
 
 
 class LibraryCliTests(unittest.TestCase):
+    def test_read_json_keeps_reader_output_on_stderr(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            artifact = root / "One" / "one.cbz"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"archive")
+            standard_output = StringIO()
+            standard_error = StringIO()
+
+            def read_artifact(_service, publication_id):
+                self.assertEqual(publication_id, "publication-one")
+                print("reader details")
+                return artifact
+
+            with patch.object(LibraryService, "read_artifact", read_artifact):
+                with redirect_stdout(standard_output), redirect_stderr(standard_error):
+                    code = main(
+                        [
+                            "read",
+                            "publication-one",
+                            "--root",
+                            str(root),
+                            "--json",
+                        ]
+                    )
+
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(standard_output.getvalue())["path"], str(artifact))
+            self.assertIn("reader details", standard_error.getvalue())
+
     def test_rebuild_and_list_json(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "outputs"
