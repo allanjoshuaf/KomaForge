@@ -7,6 +7,8 @@ from pathlib import Path
 
 from document_extractor.job_executor import JobExecutor
 from document_extractor.jobs import JobAction, JobQueue, JobStatus
+from document_extractor.library import LibraryIndex
+from document_extractor.library_state import LibraryState
 
 
 class JobExecutorTests(unittest.TestCase):
@@ -91,6 +93,11 @@ class JobExecutorTests(unittest.TestCase):
                 json.dumps(manifest([chapter(1)])),
                 encoding="utf-8",
             )
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            publication_id = index.list_publications()[0]["id"]
+            state = LibraryState(root / ".komaforge" / "state.sqlite")
+            state.track(publication_id)
             queue = JobQueue(root / ".komaforge" / "jobs.sqlite")
             queued = queue.enqueue(
                 JobAction.UPDATE,
@@ -121,6 +128,11 @@ class JobExecutorTests(unittest.TestCase):
                 "https://example.test/book/chapter-2",
             )
             self.assertEqual(download.status, JobStatus.PENDING)
+            updates = state.updates(unseen_only=True)
+            self.assertEqual(len(updates), 1)
+            self.assertEqual(updates[0].publication_id, publication_id)
+            self.assertEqual(updates[0].part_title, "Chapter 2")
+            self.assertEqual(updates[0].download_job_id, download.id)
 
             repeated = JobExecutor(queue, runner).run_next()
 
@@ -135,6 +147,7 @@ class JobExecutorTests(unittest.TestCase):
                 ),
                 1,
             )
+            self.assertEqual(len(state.updates()), 1)
 
     def test_unsupported_options_fail_without_starting_runner(self):
         with tempfile.TemporaryDirectory() as temp:

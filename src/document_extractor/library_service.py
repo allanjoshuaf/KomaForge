@@ -11,7 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .library import LibraryIndex
-from .library_state import Category, LibraryState, ReadingProgress, TrackedPublication
+from .library_state import (
+    Category,
+    LibraryState,
+    ReadingProgress,
+    TrackedPublication,
+    UpdateEvent,
+)
 from .jobs import Job, JobAction, JobQueue, JobStatus
 from .models import Part, Publication
 from .paths import canonical_source_identity
@@ -44,6 +50,12 @@ class ReadingHistoryView:
     publication: Publication
     part: Part
     progress: ReadingProgress
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryUpdateView:
+    publication: Publication
+    update: UpdateEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +239,7 @@ class LibraryService:
             "tracked": len(self.tracked()),
             "categories": len(self.state.categories()),
             "unread": len(self.unread()),
+            "updates": len(self.updates(unseen_only=True)),
             "history": len(self.history()),
             "jobs": {
                 status.value: sum(job.status is status for job in jobs)
@@ -269,6 +282,25 @@ class LibraryService:
                     )
                 )
         return tuple(views)
+
+    def updates(self, *, unseen_only: bool = False) -> tuple[LibraryUpdateView, ...]:
+        """List newly discovered parts independently from reading progress."""
+
+        views: list[LibraryUpdateView] = []
+        for update in self.state.updates(unseen_only=unseen_only):
+            publication = self.index.load_publication(update.publication_id)
+            if publication is not None:
+                views.append(LibraryUpdateView(publication, update))
+        return tuple(views)
+
+    def mark_updates_seen(self, publication_id: str | None = None) -> int:
+        if publication_id is not None:
+            tracked = {
+                item.publication_id for item in self.state.tracked()
+            }
+            if publication_id not in tracked:
+                raise KeyError(publication_id)
+        return self.state.mark_updates_seen(publication_id)
 
     def queue_updates(
         self,

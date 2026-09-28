@@ -167,6 +167,22 @@ def build_parser() -> argparse.ArgumentParser:
     history = subparsers.add_parser("history", help="Affiche l’historique de lecture")
     _add_paths(history)
     _add_state_path(history)
+    updates = subparsers.add_parser(
+        "updates", help="Liste les nouvelles parties détectées"
+    )
+    updates.add_argument(
+        "--all",
+        action="store_true",
+        help="Inclut les nouveautés déjà consultées",
+    )
+    _add_paths(updates)
+    _add_state_path(updates)
+    updates_seen = subparsers.add_parser(
+        "updates-seen", help="Marque les nouveautés comme consultées"
+    )
+    updates_seen.add_argument("--publication-id")
+    _add_paths(updates_seen)
+    _add_state_path(updates_seen)
     update = subparsers.add_parser(
         "update",
         help="Met les publications suivies en file de vérification",
@@ -263,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
             "tracked",
             "unread",
             "history",
+            "updates",
+            "updates-seen",
             "update",
             "progress",
             "read",
@@ -503,6 +521,42 @@ def main(argv: list[str] | None = None) -> int:
                         )
                 return 0
 
+            if args.command == "updates":
+                updates = service.updates(unseen_only=not args.all)
+                payload = [
+                    {
+                        "publication_id": item.publication.id,
+                        "publication_title": item.publication.title,
+                        "part_id": item.update.part_id,
+                        "part_title": item.update.part_title,
+                        "source_url": item.update.source_url,
+                        "discovered_at": item.update.discovered_at,
+                        "download_job_id": item.update.download_job_id,
+                        "seen": item.update.seen,
+                    }
+                    for item in updates
+                ]
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                elif not payload:
+                    print("Aucune nouvelle partie détectée.")
+                else:
+                    for item in payload:
+                        print(
+                            f"{item['publication_title']} | {item['part_title']} | "
+                            f"{item['discovered_at']}"
+                        )
+                return 0
+
+            if args.command == "updates-seen":
+                marked = service.mark_updates_seen(args.publication_id)
+                payload = {"marked_seen": marked}
+                if args.as_json:
+                    print(json.dumps(payload, sort_keys=True))
+                else:
+                    print(f"{marked} nouveauté(s) marquée(s) comme consultée(s).")
+                return 0
+
             if args.command == "update":
                 queue_path = (
                     args.queue.expanduser().resolve()
@@ -614,7 +668,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"{status['downloaded']} téléchargée(s), "
                     f"{status['tracked']} suivie(s), "
                     f"{status['categories']} catégorie(s), "
-                    f"{status['unread']} partie(s) non lue(s)"
+                    f"{status['unread']} partie(s) non lue(s), "
+                    f"{status['updates']} nouveauté(s)"
                 )
                 print(
                     f"Historique : {status['history']} | "

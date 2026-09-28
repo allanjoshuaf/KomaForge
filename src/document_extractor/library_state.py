@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +33,18 @@ class Category:
     id: int
     name: str
     created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateEvent:
+    id: int
+    publication_id: str
+    part_id: str
+    part_title: str
+    source_url: str
+    discovered_at: str
+    download_job_id: str | None
+    seen: bool
 
 
 def _now() -> str:
@@ -68,7 +80,7 @@ def _create_schema(connection: sqlite3.Connection) -> None:
         "SELECT value FROM state_metadata WHERE key = 'schema_version'"
     ).fetchone()
     version = int(row["value"]) if row is not None else 0
-    if version not in {0, 1, STATE_SCHEMA_VERSION}:
+    if version not in {0, 1, 2, STATE_SCHEMA_VERSION}:
         raise RuntimeError(f"unsupported library state schema version {version}")
     connection.executescript(
         """
@@ -112,6 +124,24 @@ def _create_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS publication_categories_category_idx
         ON publication_categories(category_id, publication_id);
+
+        CREATE TABLE IF NOT EXISTS update_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            publication_id TEXT NOT NULL,
+            part_id TEXT NOT NULL,
+            part_title TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            discovered_at TEXT NOT NULL,
+            download_job_id TEXT,
+            seen INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(publication_id, part_id),
+            FOREIGN KEY(publication_id)
+                REFERENCES tracked_publications(publication_id)
+                ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS update_events_unseen_idx
+        ON update_events(seen, discovered_at, id);
         """
     )
     if version == 0:
@@ -119,7 +149,7 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             "INSERT INTO state_metadata(key, value) VALUES('schema_version', ?)",
             (str(STATE_SCHEMA_VERSION),),
         )
-    elif version == 1:
+    elif version in {1, 2}:
         connection.execute(
             "UPDATE state_metadata SET value = ? WHERE key = 'schema_version'",
             (str(STATE_SCHEMA_VERSION),),
@@ -319,6 +349,111 @@ class LibraryState:
             Category(int(row["id"]), row["name"], row["created_at"])
             for row in rows
         )
+
+    def record_update(
+        self,
+        publication_id: str,
+        part_id: str,
+        part_title: str,
+        source_url: str,
+        *,
+        download_job_id: str | None = None,
+    ) -> UpdateEvent:
+        values = tuple(
+            str(value or "").strip()
+            for value in (publication_id, part_id, part_title, source_url)
+        )
+        if not all(values):
+            raise ValueError("update event fields cannot be empty")
+        publication_id, part_id, part_title, source_url = values
+        self._prepare()
+        timestamp = _now()
+        with _open_connection(self.path) as connection:
+            tracked = connection.execute(
+                "SELECT 1 FROM tracked_publications WHERE publication_id = ?",
+                (publication_id,),
+            ).fetchone()
+            if tracked is None:
+                raise ValueError("publication must be tracked before recording updates")
+            connection.execute(
+                """
+                INSERT INTO update_events(
+                    publication_id, part_id, part_title, source_url,
+                    discovered_at, download_job_id, seen
+                ) VALUES (?, ?, ?, ?, ?, ?, 0)
+                ON CONFLICT(publication_id, part_id) DO UPDATE SET
+                    part_title = excluded.part_title,
+                    source_url = excluded.source_url,
+                    download_job_id = COALESCE(
+                        excluded.download_job_id,
+                        update_events.download_job_id
+                    )
+                """,
+                (
+                    publication_id,
+                    part_id,
+                    part_title,
+                    source_url,
+                    timestamp,
+                    download_job_id,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT * FROM update_events
+                WHERE publication_id = ? AND part_id = ?
+                """,
+                (publication_id, part_id),
+            ).fetchone()
+            connection.commit()
+        return self._update_event(row)
+
+    @staticmethod
+    def _update_event(row: sqlite3.Row) -> UpdateEvent:
+        return UpdateEvent(
+            id=int(row["id"]),
+            publication_id=row["publication_id"],
+            part_id=row["part_id"],
+            part_title=row["part_title"],
+            source_url=row["source_url"],
+            discovered_at=row["discovered_at"],
+            download_job_id=row["download_job_id"],
+            seen=bool(row["seen"]),
+        )
+
+    def updates(self, *, unseen_only: bool = False) -> tuple[UpdateEvent, ...]:
+        if not self.path.is_file():
+            return ()
+        with _open_connection(self.path) as connection:
+            _create_schema(connection)
+            query = "SELECT * FROM update_events"
+            parameters: tuple[object, ...] = ()
+            if unseen_only:
+                query += " WHERE seen = 0"
+            query += " ORDER BY discovered_at DESC, id DESC"
+            rows = connection.execute(query, parameters).fetchall()
+            connection.commit()
+        return tuple(self._update_event(row) for row in rows)
+
+    def mark_updates_seen(self, publication_id: str | None = None) -> int:
+        if not self.path.is_file():
+            return 0
+        with _open_connection(self.path) as connection:
+            _create_schema(connection)
+            if publication_id is None:
+                cursor = connection.execute(
+                    "UPDATE update_events SET seen = 1 WHERE seen = 0"
+                )
+            else:
+                cursor = connection.execute(
+                    """
+                    UPDATE update_events SET seen = 1
+                    WHERE publication_id = ? AND seen = 0
+                    """,
+                    (publication_id,),
+                )
+            connection.commit()
+        return cursor.rowcount
 
     def set_progress(
         self,

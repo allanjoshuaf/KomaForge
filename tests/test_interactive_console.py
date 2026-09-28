@@ -14,6 +14,7 @@ from document_extractor.jobs import JobAction, JobQueue, JobStatus
 from document_extractor.library import SCHEMA_VERSION, LibraryIndex
 from document_extractor.library_state import LibraryState
 from document_extractor.terminal_ui import TerminalUI
+from tests.test_library import write_manifest
 
 
 class InteractiveConsoleTests(unittest.TestCase):
@@ -48,7 +49,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             root = Path(temp)
             stream = StringIO()
             ui = TerminalUI("fr", stream=stream)
-            answers = iter(("4", "15", "1", "21", "1"))
+            answers = iter(("4", "15", "1", "23", "1"))
 
             with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
                 mode = interactive_hub(ui, root=root)
@@ -98,7 +99,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             root = Path(temp)
             stream = StringIO()
             ui = TerminalUI("fr", stream=stream)
-            answers = iter(("4", "15", "9", "3", "Favoris", "1", "7", "21", "1"))
+            answers = iter(("4", "15", "9", "3", "Favoris", "1", "7", "23", "1"))
 
             with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
                 mode = interactive_hub(ui, root=root)
@@ -107,6 +108,38 @@ class InteractiveConsoleTests(unittest.TestCase):
             self.assertEqual(mode, "guided")
             self.assertEqual([category.name for category in categories], ["Favoris"])
             self.assertIn("[OK] Créer une catégorie : Favoris", stream.getvalue())
+
+    def test_detected_updates_are_visible_and_can_be_acknowledged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_manifest(
+                root / "One" / "pages.json",
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            publication_id = index.list_publications()[0]["id"]
+            state = LibraryState(root / ".komaforge" / "state.sqlite")
+            state.track(publication_id)
+            state.record_update(
+                publication_id,
+                "part-two",
+                "Chapter 2",
+                "https://example.test/one/chapter-2",
+            )
+            stream = StringIO()
+            ui = TerminalUI("fr", stream=stream)
+            answers = iter(("4", "21", "22", "23", "1"))
+
+            with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
+                mode = interactive_hub(ui, root=root)
+
+            self.assertEqual(mode, "guided")
+            self.assertIn("Chapter 2", stream.getvalue())
+            self.assertIn("nouveautés comme consultées : 1", stream.getvalue())
+            self.assertEqual(state.updates(unseen_only=True), ())
 
 
 if __name__ == "__main__":

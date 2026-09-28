@@ -92,7 +92,52 @@ class LibraryStateTests(unittest.TestCase):
                 version = connection.execute(
                     "SELECT value FROM state_metadata WHERE key = 'schema_version'"
                 ).fetchone()[0]
-            self.assertEqual(version, "2")
+            self.assertEqual(version, "3")
+
+    def test_update_events_are_deduplicated_and_keep_seen_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = LibraryState(Path(temp) / "state.sqlite")
+            state.track("publication-one")
+
+            first = state.record_update(
+                "publication-one",
+                "part-two",
+                "Chapter 2",
+                "https://example.test/book/chapter-2",
+                download_job_id="job-one",
+            )
+            self.assertFalse(first.seen)
+            self.assertEqual(len(state.updates(unseen_only=True)), 1)
+            self.assertEqual(state.mark_updates_seen(), 1)
+
+            repeated = state.record_update(
+                "publication-one",
+                "part-two",
+                "Chapter 2 corrected",
+                "https://example.test/book/chapter-2",
+                download_job_id="job-two",
+            )
+
+            self.assertEqual(repeated.id, first.id)
+            self.assertTrue(repeated.seen)
+            self.assertEqual(repeated.part_title, "Chapter 2 corrected")
+            self.assertEqual(repeated.download_job_id, "job-two")
+            self.assertEqual(state.updates(unseen_only=True), ())
+            self.assertEqual(len(state.updates()), 1)
+
+    def test_untracking_removes_update_events(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = LibraryState(Path(temp) / "state.sqlite")
+            state.track("publication-one")
+            state.record_update(
+                "publication-one",
+                "part-two",
+                "Chapter 2",
+                "https://example.test/book/chapter-2",
+            )
+
+            self.assertTrue(state.untrack("publication-one"))
+            self.assertEqual(state.updates(), ())
 
     def test_categories_are_casefolded_and_assign_only_tracked_publications(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -282,6 +327,26 @@ class LibraryStateTests(unittest.TestCase):
             self.assertEqual(history[0].publication.id, publication.id)
             self.assertEqual(history[0].part.id, part.id)
             self.assertEqual(history[0].progress.resource_position, 1)
+
+    def test_service_resolves_and_acknowledges_update_events(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, state, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            service.track(publication.id)
+            state.record_update(
+                publication.id,
+                "future-part",
+                "Future chapter",
+                "https://example.test/one/future",
+            )
+
+            updates = service.updates(unseen_only=True)
+
+            self.assertEqual(len(updates), 1)
+            self.assertEqual(updates[0].publication.id, publication.id)
+            self.assertEqual(updates[0].update.part_title, "Future chapter")
+            self.assertEqual(service.mark_updates_seen(publication.id), 1)
+            self.assertEqual(service.updates(unseen_only=True), ())
 
     def test_service_resolves_category_members_to_current_publications(self):
         with tempfile.TemporaryDirectory() as temp:

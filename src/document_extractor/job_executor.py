@@ -9,6 +9,7 @@ from pathlib import Path
 from .cli import parse_args
 from .legacy_bridge import normalize_legacy_manifest
 from .library import LibraryIndex
+from .library_state import LibraryState
 from .jobs import Job, JobAction, JobQueue, JobStatus
 from .paths import canonical_source_identity, default_output_root
 from .updates import compare_part_updates
@@ -125,6 +126,10 @@ class JobExecutor:
         if current is None:
             raise RuntimeError("update inspection returned a different publication")
         result = compare_part_updates(known, known.parts, current.parts)
+        state = LibraryState(
+            self.library_root / ".komaforge" / "state.sqlite"
+        )
+        tracked_ids = {item.publication_id for item in state.tracked()}
         base_options = {
             key: value
             for key, value in dict(job.options or {}).items()
@@ -151,7 +156,19 @@ class JobExecutor:
                 continue
             seen_urls.add(identity)
             options = {**base_options, "scope": "document", "chapters": "all"}
-            self.queue.enqueue(JobAction.DOWNLOAD, part.source_url, options=options)
+            download = self.queue.enqueue(
+                JobAction.DOWNLOAD,
+                part.source_url,
+                options=options,
+            )
+            if known.id in tracked_ids:
+                state.record_update(
+                    known.id,
+                    part.id,
+                    part.title,
+                    download.source_url,
+                    download_job_id=download.id,
+                )
             active_downloads.add(identity)
 
     def run_next(self) -> Job | None:

@@ -224,6 +224,12 @@ class LibraryCliTests(unittest.TestCase):
             library_state = LibraryState(state)
             library_state.track(publication_id)
             library_state.assign_category(publication_id, "À lire")
+            library_state.record_update(
+                publication_id,
+                "part-two",
+                "Chapter 2",
+                "https://example.test/one/chapter-2",
+            )
             JobQueue(queue).enqueue(JobAction.INSPECT, "https://example.test/one")
             output = StringIO()
 
@@ -250,7 +256,55 @@ class LibraryCliTests(unittest.TestCase):
             self.assertEqual(status["tracked"], 1)
             self.assertEqual(status["categories"], 1)
             self.assertEqual(status["unread"], 1)
+            self.assertEqual(status["updates"], 1)
             self.assertEqual(status["jobs"]["pending"], 1)
+
+    def test_updates_commands_list_and_acknowledge_discoveries(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            index = Path(temp) / "library.sqlite"
+            state_path = Path(temp) / "state.sqlite"
+            write_manifest(root / "One" / "pages.json")
+            with redirect_stdout(StringIO()):
+                main(["rebuild", "--root", str(root), "--index", str(index)])
+            publication_id = LibraryIndex(index).list_publications()[0]["id"]
+            state = LibraryState(state_path)
+            state.track(publication_id)
+            state.record_update(
+                publication_id,
+                "part-two",
+                "Chapter 2",
+                "https://example.test/one/chapter-2",
+                download_job_id="job-two",
+            )
+            common = [
+                "--root",
+                str(root),
+                "--index",
+                str(index),
+                "--state",
+                str(state_path),
+            ]
+
+            output = StringIO()
+            with redirect_stdout(output):
+                list_code = main(["updates", *common, "--json"])
+            updates = json.loads(output.getvalue())
+
+            output = StringIO()
+            with redirect_stdout(output):
+                seen_code = main(["updates-seen", *common, "--json"])
+
+            self.assertEqual(list_code, 0)
+            self.assertEqual(updates[0]["part_title"], "Chapter 2")
+            self.assertEqual(updates[0]["download_job_id"], "job-two")
+            self.assertEqual(seen_code, 0)
+            self.assertEqual(json.loads(output.getvalue()), {"marked_seen": 1})
+
+            output = StringIO()
+            with redirect_stdout(output):
+                main(["updates", *common, "--json"])
+            self.assertEqual(json.loads(output.getvalue()), [])
 
     def test_category_commands_group_tracked_publications(self):
         with tempfile.TemporaryDirectory() as temp:

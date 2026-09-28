@@ -60,6 +60,7 @@ PLATFORM_MESSAGES = {
         "tracked": "Suivies",
         "categories": "Catégories",
         "unread": "non lues",
+        "updates": "Nouveautés",
         "completed": "terminées",
         "attempts": "tentatives",
         "pending": "En attente",
@@ -80,6 +81,8 @@ PLATFORM_MESSAGES = {
         "library_unread": "Afficher les parties non lues",
         "library_downloaded": "Afficher les téléchargements disponibles",
         "library_history": "Afficher l’historique de lecture",
+        "library_updates": "Afficher les nouveautés détectées",
+        "library_updates_seen": "Marquer les nouveautés comme consultées",
         "library_categories": "Gérer les catégories",
         "category_list": "Lister les catégories",
         "category_create": "Créer une catégorie",
@@ -102,6 +105,7 @@ PLATFORM_MESSAGES = {
         "tracked_empty": "Aucune publication suivie.",
         "unread_empty": "Aucune partie non lue.",
         "history_empty": "Aucun historique de lecture.",
+        "updates_empty": "Aucune nouvelle partie détectée.",
         "query": "Recherche",
         "publication_id": "Identifiant de publication",
         "part_id": "Identifiant de partie",
@@ -166,6 +170,7 @@ PLATFORM_MESSAGES = {
         "tracked": "Tracked",
         "categories": "Categories",
         "unread": "unread",
+        "updates": "Updates",
         "completed": "completed",
         "attempts": "attempts",
         "pending": "Pending",
@@ -186,6 +191,8 @@ PLATFORM_MESSAGES = {
         "library_unread": "Show unread parts",
         "library_downloaded": "Show downloaded publications",
         "library_history": "Show reading history",
+        "library_updates": "Show detected updates",
+        "library_updates_seen": "Mark updates as seen",
         "library_categories": "Manage categories",
         "category_list": "List categories",
         "category_create": "Create a category",
@@ -208,6 +215,7 @@ PLATFORM_MESSAGES = {
         "tracked_empty": "No tracked publications.",
         "unread_empty": "No unread parts.",
         "history_empty": "No reading history.",
+        "updates_empty": "No new parts detected.",
         "query": "Search",
         "publication_id": "Publication identifier",
         "part_id": "Part identifier",
@@ -272,6 +280,7 @@ PLATFORM_MESSAGES = {
         "tracked": "Отслеживается",
         "categories": "Категории",
         "unread": "не прочитано",
+        "updates": "Обновления",
         "completed": "завершено",
         "attempts": "попытки",
         "pending": "Ожидает",
@@ -292,6 +301,8 @@ PLATFORM_MESSAGES = {
         "library_unread": "Непрочитанные части",
         "library_downloaded": "Загруженные публикации",
         "library_history": "История чтения",
+        "library_updates": "Обнаруженные обновления",
+        "library_updates_seen": "Отметить обновления как просмотренные",
         "library_categories": "Управление категориями",
         "category_list": "Список категорий",
         "category_create": "Создать категорию",
@@ -314,6 +325,7 @@ PLATFORM_MESSAGES = {
         "tracked_empty": "Нет отслеживаемых публикаций.",
         "unread_empty": "Нет непрочитанных частей.",
         "history_empty": "История чтения пуста.",
+        "updates_empty": "Новых частей не обнаружено.",
         "query": "Поиск",
         "publication_id": "ID публикации",
         "part_id": "ID части",
@@ -378,6 +390,7 @@ PLATFORM_MESSAGES = {
         "tracked": "已跟踪",
         "categories": "分类",
         "unread": "未读",
+        "updates": "更新",
         "completed": "已完成",
         "attempts": "尝试次数",
         "pending": "等待中",
@@ -398,6 +411,8 @@ PLATFORM_MESSAGES = {
         "library_unread": "显示未读部分",
         "library_downloaded": "显示已下载出版物",
         "library_history": "显示阅读历史",
+        "library_updates": "显示检测到的更新",
+        "library_updates_seen": "将更新标记为已查看",
         "library_categories": "管理分类",
         "category_list": "列出分类",
         "category_create": "创建分类",
@@ -420,6 +435,7 @@ PLATFORM_MESSAGES = {
         "tracked_empty": "没有已跟踪出版物。",
         "unread_empty": "没有未读部分。",
         "history_empty": "没有阅读历史。",
+        "updates_empty": "未检测到新部分。",
         "query": "搜索",
         "publication_id": "出版物标识符",
         "part_id": "部分标识符",
@@ -572,6 +588,7 @@ def _show_library_status(
     ui.key_value(_text(ui, "tracked"), status["tracked"])
     ui.key_value(_text(ui, "categories"), status["categories"])
     ui.key_value(_text(ui, "unread"), status["unread"])
+    ui.key_value(_text(ui, "updates"), status["updates"])
     ui.key_value(
         _text(ui, "pending"),
         status["jobs"][JobStatus.PENDING.value],
@@ -654,6 +671,18 @@ def _show_history(ui: TerminalUI, service: LibraryService) -> None:
             item.part.title,
             f"{item.publication.title} · {_text(ui, 'position')}="
             f"{item.progress.resource_position} · {item.progress.updated_at}",
+        )
+
+
+def _show_updates(ui: TerminalUI, service: LibraryService) -> None:
+    updates = service.updates(unseen_only=True)
+    if not updates:
+        ui.notice(_text(ui, "updates_empty"), "info")
+        return
+    for item in updates:
+        ui.item(
+            item.update.part_title,
+            f"{item.publication.title} · {item.update.discovered_at}",
         )
 
 
@@ -746,9 +775,11 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
         ui.option(18, _text(ui, "library_progress"))
         ui.option(19, _text(ui, "library_mark_read"))
         ui.option(20, _text(ui, "library_mark_unread"))
-        ui.option(21, _text(ui, "back"))
+        ui.option(21, _text(ui, "library_updates"))
+        ui.option(22, _text(ui, "library_updates_seen"))
+        ui.option(23, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "21":
+        if choice == "23":
             return
         try:
             if choice == "1":
@@ -867,7 +898,16 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     f"{_text(ui, 'library_mark_unread')} : {cleared}",
                     "success",
                 )
-            elif choice not in {str(value) for value in range(1, 22)}:
+            elif choice == "21" and _library_ready(ui, index, library_root):
+                ui.section(_text(ui, "library_updates"))
+                _show_updates(ui, service)
+            elif choice == "22" and _library_ready(ui, index, library_root):
+                marked = service.mark_updates_seen()
+                ui.notice(
+                    f"{_text(ui, 'library_updates_seen')} : {marked}",
+                    "success",
+                )
+            elif choice not in {str(value) for value in range(1, 24)}:
                 ui.error(_text(ui, "submenu_invalid"))
         except (KeyError, OSError, RuntimeError, ValueError) as exc:
             ui.error(str(exc))
