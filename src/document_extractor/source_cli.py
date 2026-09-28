@@ -5,6 +5,7 @@ import json
 import sys
 
 from .application import resolve_source
+from .reader_families import BUILTIN_RESOURCE_STRATEGIES
 from .sources import (
     BUILTIN_READER_FAMILIES,
     BUILTIN_SOURCE_CANDIDATES,
@@ -228,6 +229,11 @@ def family_records() -> tuple[dict, ...]:
             "name": family.name,
             "status": family.status.value,
             "description": family.description,
+            "strategies": [
+                strategy.strategy_id
+                for strategy in BUILTIN_RESOURCE_STRATEGIES
+                if strategy.family_id == family.id
+            ],
         }
         for family in BUILTIN_READER_FAMILIES
     )
@@ -291,6 +297,9 @@ def source_summary() -> dict:
         "families": {
             "total": len(families),
             "by_status": _status_counts(families),
+            "strategies": sum(
+                len(family["strategies"]) for family in families
+            ),
         },
     }
 

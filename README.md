@@ -358,6 +358,10 @@ sans analyser du texte destiné à l’utilisateur.
 `families` garde séparées les stratégies réutilisables (lecteur paginé, vertical,
 document direct ou parties sélectionnables). `candidates` liste les sites déjà
 observés avec le fallback mais qui n’ont pas encore d’adaptateur spécialisé.
+Les lecteurs d’images Blob, à manifeste de chapitre, paginés, à attribut de page
+et verticaux sont désormais routés par des stratégies distinctes. Leur ordre est
+déterministe et une stratégie reconnue n’agrège pas silencieusement les images
+d’une autre famille.
 SushiScan et MangaReader.pro peuvent ainsi être marqués compatibles et validés tout
 en restant honnêtement décrits comme des intégrations génériques. La date du dernier
 contrôle live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.

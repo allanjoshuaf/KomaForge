@@ -4,6 +4,9 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- les lecteurs Blob, manifestes de chapitre, paginés et verticaux sont maintenant
+  routés par des stratégies de famille isolées et testables, hors de l’orchestrateur
+  de détection monolithique ;
 - la liste des nouveautés expose maintenant l’état réel de leur téléchargement,
   et le lecteur peut ouvrir directement une partie choisie depuis la commande ou
   le menu Bibliothèque ;

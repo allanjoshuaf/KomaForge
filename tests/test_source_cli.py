@@ -84,6 +84,18 @@ class SourceCliTests(unittest.TestCase):
             ],
         )
         self.assertEqual(families[-1]["status"], "experimental")
+        vertical = next(
+            family for family in families if family["id"] == "vertical-images"
+        )
+        self.assertEqual(
+            vertical["strategies"],
+            [
+                "virtual-blob",
+                "chapter-manifest",
+                "document-images",
+                "grouped-images",
+            ],
+        )
 
     def test_sources_and_families_can_be_filtered_by_status(self):
         source_output = StringIO()
@@ -122,6 +134,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(status["sources"]["browse"], ["mangadex"])
         self.assertEqual(status["candidates"]["by_status"]["validated"], 2)
         self.assertEqual(status["families"]["total"], 4)
+        self.assertEqual(status["families"]["strategies"], 5)
 
     def test_candidates_are_distinct_from_specialized_sources(self):
         output = StringIO()

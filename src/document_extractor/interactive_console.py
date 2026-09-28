@@ -543,9 +543,10 @@ def _show_sources(ui: TerminalUI) -> None:
 def _show_families(ui: TerminalUI) -> None:
     ui.section(_text(ui, "sources_families"))
     for family in family_records():
+        strategies = ", ".join(family["strategies"]) or _text(ui, "never")
         ui.item(
             f"{family['name']} · {family['status']}",
-            family["description"],
+            f"{family['description']} · {strategies}",
         )
 
 
