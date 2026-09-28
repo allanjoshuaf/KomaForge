@@ -40,6 +40,9 @@ PLATFORM_MESSAGES = {
         "sources_popular": "Afficher les œuvres populaires",
         "sources_latest": "Afficher les dernières mises à jour",
         "remote_empty": "Aucun résultat distant.",
+        "remote_select": "Numéro à ajouter à la bibliothèque (Entrée pour annuler)",
+        "remote_invalid": "Résultat distant invalide.",
+        "remote_added": "Ajouté à la bibliothèque",
         "back": "Retour au menu principal",
         "submenu_invalid": "Choix invalide.",
         "url": "URL",
@@ -155,6 +158,9 @@ PLATFORM_MESSAGES = {
         "sources_popular": "Show popular works",
         "sources_latest": "Show latest updates",
         "remote_empty": "No remote results.",
+        "remote_select": "Result number to add to the library (Enter to cancel)",
+        "remote_invalid": "Invalid remote result.",
+        "remote_added": "Added to the library",
         "back": "Back to the main menu",
         "submenu_invalid": "Invalid choice.",
         "url": "URL",
@@ -270,6 +276,9 @@ PLATFORM_MESSAGES = {
         "sources_popular": "Популярные произведения",
         "sources_latest": "Последние обновления",
         "remote_empty": "Удалённых результатов нет.",
+        "remote_select": "Номер для добавления в библиотеку (Enter — отмена)",
+        "remote_invalid": "Неверный удалённый результат.",
+        "remote_added": "Добавлено в библиотеку",
         "back": "Назад в главное меню",
         "submenu_invalid": "Неверный выбор.",
         "url": "URL",
@@ -385,6 +394,9 @@ PLATFORM_MESSAGES = {
         "sources_popular": "显示热门作品",
         "sources_latest": "显示最新更新",
         "remote_empty": "没有远程结果。",
+        "remote_select": "输入要加入书库的编号（按 Enter 取消）",
+        "remote_invalid": "远程结果无效。",
+        "remote_added": "已加入书库",
         "back": "返回主菜单",
         "submenu_invalid": "选择无效。",
         "url": "URL",
@@ -553,7 +565,7 @@ def _match_source(ui: TerminalUI) -> None:
     ui.key_value(_text(ui, "capabilities"), route.match.reason or "—")
 
 
-def _show_remote_catalog(ui: TerminalUI, command: str) -> None:
+def _show_remote_catalog(ui: TerminalUI, command: str, root: Path) -> None:
     query = ui.prompt(_text(ui, "query")) if command == "search" else None
     if command == "search" and not query:
         return
@@ -566,17 +578,56 @@ def _show_remote_catalog(ui: TerminalUI, command: str) -> None:
     )
     if not payload["results"]:
         ui.notice(_text(ui, "remote_empty"), "info")
-    for result in payload["results"]:
+    for position, result in enumerate(payload["results"], start=1):
         authors = ", ".join(result["authors"]) or "—"
         ui.item(
-            result["title"],
+            f"{position}. {result['title']}",
             f"{result['source_id']} · {authors} · {result['publication_url']}",
         )
     for source_id, error in payload["errors"].items():
         ui.notice(f"{source_id} · {error}", "warning")
+    if not payload["results"]:
+        return
+    selected = ui.prompt(_text(ui, "remote_select"))
+    if not selected:
+        return
+    try:
+        position = int(selected)
+        if not 1 <= position <= len(payload["results"]):
+            raise ValueError
+        result = payload["results"][position - 1]
+    except (IndexError, TypeError, ValueError) as exc:
+        raise ValueError(_text(ui, "remote_invalid")) from exc
+    publication_url = result.get("publication_url")
+    if not isinstance(publication_url, str) or not publication_url:
+        raise ValueError(_text(ui, "remote_invalid"))
+    output_format = ui.prompt(_text(ui, "format"), "original").casefold()
+    if output_format not in OUTPUT_FORMATS:
+        raise ValueError(f"unsupported format: {output_format}")
+    chapters = ui.prompt(_text(ui, "chapters"), "1") or "1"
+    library_root = root.expanduser().resolve()
+    service = LibraryService(
+        LibraryIndex(library_root / ".komaforge" / "library.sqlite"),
+        LibraryState(library_root / ".komaforge" / "state.sqlite"),
+    )
+    added = service.add_url(
+        publication_url,
+        library_root,
+        options={
+            "chapters": chapters,
+            "language": ui.language,
+            "output_format": output_format,
+            "scope": "auto",
+        },
+    )
+    ui.notice(
+        f"{_text(ui, 'remote_added')} : {added.publication.title}",
+        "success",
+    )
 
 
-def sources_menu(ui: TerminalUI) -> None:
+def sources_menu(ui: TerminalUI, root: Path | None = None) -> None:
+    library_root = (root or default_output_root()).expanduser().resolve()
     while True:
         ui.section(_text(ui, "sources_title"))
         ui.option(1, _text(ui, "sources_adapters"))
@@ -600,11 +651,11 @@ def sources_menu(ui: TerminalUI) -> None:
             elif choice == "4":
                 _match_source(ui)
             elif choice == "5":
-                _show_remote_catalog(ui, "search")
+                _show_remote_catalog(ui, "search", library_root)
             elif choice == "6":
-                _show_remote_catalog(ui, "popular")
+                _show_remote_catalog(ui, "popular", library_root)
             elif choice == "7":
-                _show_remote_catalog(ui, "latest")
+                _show_remote_catalog(ui, "latest", library_root)
             else:
                 ui.error(_text(ui, "submenu_invalid"))
         except (RuntimeError, ValueError) as exc:
@@ -1108,7 +1159,7 @@ def interactive_hub(
         if choice == "2":
             return "advanced"
         if choice == "3":
-            sources_menu(ui)
+            sources_menu(ui, root)
         elif choice == "4":
             library_menu(ui, root)
         elif choice == "5":

@@ -368,6 +368,10 @@ réels. Toute utilisation doit respecter la
 [politique officielle de l’API MangaDex](https://gitlab.com/mangadex-pub/mangadex-api-docs/-/blob/main/index.md),
 notamment les crédits, les demandes de retrait et l’interdiction d’en tirer un
 service publicitaire ou payant.
+Dans le menu **Sources et compatibilité**, chaque résultat distant est numéroté.
+Choisir son numéro permet de sélectionner le format et les parties, puis d’extraire
+et suivre explicitement cette publication dans la bibliothèque. Appuyer directement
+sur Entrée annule l’ajout ; afficher un catalogue ne télécharge donc rien à lui seul.
 Les commandes séparées `komaforge-library`, `komaforge-jobs` et
 `komaforge-sources` restent installées pour les scripts existants.
 

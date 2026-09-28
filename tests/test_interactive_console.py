@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from document_extractor.interactive_console import (
@@ -12,6 +13,7 @@ from document_extractor.interactive_console import (
 )
 from document_extractor.jobs import JobAction, JobQueue, JobStatus
 from document_extractor.library import SCHEMA_VERSION, LibraryIndex
+from document_extractor.library_service import LibraryService
 from document_extractor.library_state import LibraryState
 from document_extractor.terminal_ui import TerminalUI
 from tests.test_library import write_manifest
@@ -43,6 +45,53 @@ class InteractiveConsoleTests(unittest.TestCase):
         self.assertIn("eBooks.com · degraded", rendered)
         self.assertIn("Generic Web · experimental", rendered)
         self.assertLessEqual(max(map(len, rendered.splitlines())), 76)
+
+    def test_remote_catalog_result_can_be_added_to_the_library(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stream = StringIO()
+            ui = TerminalUI("fr", stream=stream)
+            payload = {
+                "results": [
+                    {
+                        "source_id": "mangadex",
+                        "title": "Alchemy",
+                        "authors": ["Author"],
+                        "publication_url": "https://mangadex.org/title/12345678-1234-1234-1234-123456789abc",
+                    }
+                ],
+                "errors": {},
+            }
+            added = SimpleNamespace(
+                publication=SimpleNamespace(title="Alchemy")
+            )
+            answers = iter(("3", "5", "alchemy", "1", "original", "1", "8", "1"))
+
+            with patch(
+                "document_extractor.interactive_console.catalog_query",
+                return_value=payload,
+            ), patch.object(
+                LibraryService,
+                "add_url",
+                return_value=added,
+            ) as add_url, patch(
+                "builtins.input",
+                side_effect=lambda _prompt: next(answers),
+            ):
+                mode = interactive_hub(ui, root=root)
+
+            self.assertEqual(mode, "guided")
+            add_url.assert_called_once_with(
+                payload["results"][0]["publication_url"],
+                root.resolve(),
+                options={
+                    "chapters": "1",
+                    "language": "fr",
+                    "output_format": "original",
+                    "scope": "auto",
+                },
+            )
+            self.assertIn("[OK] Ajouté à la bibliothèque : Alchemy", stream.getvalue())
 
     def test_library_can_be_rebuilt_and_inspected_from_the_hub(self):
         with tempfile.TemporaryDirectory() as temp:
