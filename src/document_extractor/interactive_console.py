@@ -552,7 +552,8 @@ def _show_library_status(
 ) -> None:
     if not _library_ready(ui, index, root):
         return
-    status = index.status()
+    service = LibraryService(index, state)
+    status = service.dashboard(JobQueue(root / ".komaforge" / "jobs.sqlite"))
     ui.section(_text(ui, "library_status"))
     ui.key_value(_text(ui, "works"), status["works"])
     ui.key_value(_text(ui, "publications"), status["publications"])
@@ -560,18 +561,16 @@ def _show_library_status(
     ui.key_value(_text(ui, "resources"), status["resources"])
     ui.key_value(_text(ui, "coverage"), _format_mapping(status["coverage"]))
     ui.key_value(_text(ui, "integrity"), _format_mapping(status["artifact_integrity"]))
-    service = LibraryService(index, state)
-    ui.key_value(_text(ui, "tracked"), len(service.tracked()))
-    ui.key_value(_text(ui, "categories"), len(state.categories()))
-    ui.key_value(_text(ui, "unread"), len(service.unread()))
-    jobs = JobQueue(root / ".komaforge" / "jobs.sqlite").list()
+    ui.key_value(_text(ui, "tracked"), status["tracked"])
+    ui.key_value(_text(ui, "categories"), status["categories"])
+    ui.key_value(_text(ui, "unread"), status["unread"])
     ui.key_value(
         _text(ui, "pending"),
-        sum(job.status is JobStatus.PENDING for job in jobs),
+        status["jobs"][JobStatus.PENDING.value],
     )
     ui.key_value(
         _text(ui, "failed"),
-        sum(job.status is JobStatus.FAILED for job in jobs),
+        status["jobs"][JobStatus.FAILED.value],
     )
 
 

@@ -12,6 +12,8 @@ from unittest.mock import patch
 from document_extractor.library import LibraryIndex
 from document_extractor.library_service import LibraryService
 from document_extractor.library_cli import main
+from document_extractor.library_state import LibraryState
+from document_extractor.jobs import JobAction, JobQueue
 
 
 def write_manifest(path: Path) -> None:
@@ -213,9 +215,16 @@ class LibraryCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "outputs"
             index = Path(temp) / "library.sqlite"
+            state = Path(temp) / "state.sqlite"
+            queue = Path(temp) / "jobs.sqlite"
             write_manifest(root / "One" / "pages.json")
             with redirect_stdout(StringIO()):
                 main(["rebuild", "--root", str(root), "--index", str(index)])
+            publication_id = LibraryIndex(index).list_publications()[0]["id"]
+            library_state = LibraryState(state)
+            library_state.track(publication_id)
+            library_state.assign_category(publication_id, "À lire")
+            JobQueue(queue).enqueue(JobAction.INSPECT, "https://example.test/one")
             output = StringIO()
 
             with redirect_stdout(output):
@@ -226,6 +235,10 @@ class LibraryCliTests(unittest.TestCase):
                         str(root),
                         "--index",
                         str(index),
+                        "--state",
+                        str(state),
+                        "--queue",
+                        str(queue),
                         "--json",
                     ]
                 )
@@ -234,6 +247,10 @@ class LibraryCliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(status["works"], 1)
             self.assertEqual(status["coverage"], {"complete": 1})
+            self.assertEqual(status["tracked"], 1)
+            self.assertEqual(status["categories"], 1)
+            self.assertEqual(status["unread"], 1)
+            self.assertEqual(status["jobs"]["pending"], 1)
 
     def test_category_commands_group_tracked_publications(self):
         with tempfile.TemporaryDirectory() as temp:

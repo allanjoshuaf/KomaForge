@@ -230,6 +230,9 @@ Par défaut, la commande lit `C:\Extractions\Manga` sous Windows et place l’in
 dans `C:\Extractions\Manga\.komaforge\library.sqlite`. `--root` permet de choisir
 une autre bibliothèque et `--index` un autre fichier SQLite. L’option `--json`
 fournit une sortie stable pour une future interface ou un autre outil local.
+Le tableau `library status` réunit dans ce même format stable la santé de l’index,
+les téléchargements disponibles, les publications suivies, les catégories, les
+parties non lues, l’historique et le nombre de travaux dans chaque état de la file.
 
 Lorsqu’une même source possède plusieurs anciens manifestes, la reconstruction
 garde une seule publication canonique. Elle privilégie d’abord la couverture

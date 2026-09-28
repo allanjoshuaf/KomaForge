@@ -105,6 +105,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_state_path(continue_parser)
     status = subparsers.add_parser("status", help="Résume la santé de la bibliothèque")
     _add_paths(status)
+    _add_state_path(status)
+    status.add_argument(
+        "--queue",
+        type=Path,
+        help="File SQLite (défaut : ROOT/.komaforge/jobs.sqlite)",
+    )
     search = subparsers.add_parser("search", help="Recherche dans la bibliothèque locale")
     search.add_argument("query")
     _add_paths(search)
@@ -558,7 +564,15 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Ouvert : {path}")
             return 0
         if args.command == "status":
-            status = index.status()
+            queue_path = (
+                args.queue.expanduser().resolve()
+                if args.queue
+                else root / ".komaforge" / "jobs.sqlite"
+            )
+            status = LibraryService(
+                index,
+                LibraryState(_state_path(args, root)),
+            ).dashboard(JobQueue(queue_path))
             if args.as_json:
                 print(json.dumps(status, ensure_ascii=False, sort_keys=True))
             else:
@@ -569,6 +583,16 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Intégrité : {status['artifact_integrity']}")
                 print(f"Couverture : {status['coverage']}")
                 print(f"État des manifestes : {status['legacy_status']}")
+                print(
+                    f"{status['downloaded']} téléchargée(s), "
+                    f"{status['tracked']} suivie(s), "
+                    f"{status['categories']} catégorie(s), "
+                    f"{status['unread']} partie(s) non lue(s)"
+                )
+                print(
+                    f"Historique : {status['history']} | "
+                    f"File : {status['jobs']}"
+                )
             return 0
         works = (
             index.search_works(args.query)

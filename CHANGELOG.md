@@ -4,6 +4,9 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- le tableau de bord repose maintenant sur un instantané applicatif commun au menu
+  et à `library status --json`, incluant téléchargements, suivis, catégories,
+  non-lus, historique et file par statut ;
 - Calaméo, Manga UP et eBooks.com fournissent maintenant leurs publications
   normalisées au moteur d’extraction ; l’échec d’une source reconnue reste explicite
   et ne déclenche pas de fallback générique silencieux ;

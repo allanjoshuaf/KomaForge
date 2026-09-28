@@ -188,6 +188,23 @@ class LibraryService:
             sorted(publications, key=lambda item: (item.title.casefold(), item.id))
         )
 
+    def dashboard(self, queue: JobQueue) -> dict:
+        """Return one stable snapshot for terminal and future graphical clients."""
+
+        jobs = queue.list()
+        return {
+            **self.index.status(),
+            "downloaded": len(self.index.list_downloaded()),
+            "tracked": len(self.tracked()),
+            "categories": len(self.state.categories()),
+            "unread": len(self.unread()),
+            "history": len(self.history()),
+            "jobs": {
+                status.value: sum(job.status is status for job in jobs)
+                for status in JobStatus
+            },
+        }
+
     def unread(self, publication_id: str | None = None) -> tuple[UnreadPartView, ...]:
         """List tracked parts that have not been explicitly completed."""
 
