@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator
 
 
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +26,13 @@ class ReadingProgress:
     resource_position: int
     completed: bool
     updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class Category:
+    id: int
+    name: str
+    created_at: str
 
 
 def _now() -> str:
@@ -49,13 +56,22 @@ def _open_connection(path: Path) -> Iterator[sqlite3.Connection]:
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:
-    connection.executescript(
+    connection.execute(
         """
         CREATE TABLE IF NOT EXISTS state_metadata (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
-        );
-
+        )
+        """
+    )
+    row = connection.execute(
+        "SELECT value FROM state_metadata WHERE key = 'schema_version'"
+    ).fetchone()
+    version = int(row["value"]) if row is not None else 0
+    if version not in {0, 1, STATE_SCHEMA_VERSION}:
+        raise RuntimeError(f"unsupported library state schema version {version}")
+    connection.executescript(
+        """
         CREATE TABLE IF NOT EXISTS tracked_publications (
             publication_id TEXT PRIMARY KEY,
             added_at TEXT NOT NULL
@@ -74,20 +90,51 @@ def _create_schema(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS reading_progress_publication_idx
         ON reading_progress(publication_id, completed);
+
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            name_key TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS publication_categories (
+            publication_id TEXT NOT NULL,
+            category_id INTEGER NOT NULL,
+            PRIMARY KEY(publication_id, category_id),
+            FOREIGN KEY(publication_id)
+                REFERENCES tracked_publications(publication_id)
+                ON DELETE CASCADE,
+            FOREIGN KEY(category_id)
+                REFERENCES categories(id)
+                ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS publication_categories_category_idx
+        ON publication_categories(category_id, publication_id);
         """
     )
-    row = connection.execute(
-        "SELECT value FROM state_metadata WHERE key = 'schema_version'"
-    ).fetchone()
-    if row is None:
+    if version == 0:
         connection.execute(
             "INSERT INTO state_metadata(key, value) VALUES('schema_version', ?)",
             (str(STATE_SCHEMA_VERSION),),
         )
-    elif int(row["value"]) != STATE_SCHEMA_VERSION:
-        raise RuntimeError(
-            f"unsupported library state schema version {row['value']}"
+    elif version == 1:
+        connection.execute(
+            "UPDATE state_metadata SET value = ? WHERE key = 'schema_version'",
+            (str(STATE_SCHEMA_VERSION),),
         )
+
+
+def _category_name(value: str) -> tuple[str, str]:
+    name = " ".join(str(value or "").split())
+    if not name:
+        raise ValueError("category name cannot be empty")
+    if len(name) > 80:
+        raise ValueError("category name cannot exceed 80 characters")
+    if any(ord(character) < 32 for character in name):
+        raise ValueError("category name cannot contain control characters")
+    return name, name.casefold()
 
 
 class LibraryState:
@@ -143,6 +190,133 @@ class LibraryState:
             ).fetchall()
         return tuple(
             TrackedPublication(row["publication_id"], row["added_at"])
+            for row in rows
+        )
+
+    def create_category(self, name: str) -> Category:
+        display_name, name_key = _category_name(name)
+        self._prepare()
+        with _open_connection(self.path) as connection:
+            connection.execute(
+                """
+                INSERT INTO categories(name, name_key, created_at)
+                VALUES(?, ?, ?)
+                ON CONFLICT(name_key) DO NOTHING
+                """,
+                (display_name, name_key, _now()),
+            )
+            row = connection.execute(
+                "SELECT id, name, created_at FROM categories WHERE name_key = ?",
+                (name_key,),
+            ).fetchone()
+            connection.commit()
+        return Category(int(row["id"]), row["name"], row["created_at"])
+
+    def categories(self) -> tuple[Category, ...]:
+        if not self.path.is_file():
+            return ()
+        with _open_connection(self.path) as connection:
+            _create_schema(connection)
+            rows = connection.execute(
+                "SELECT id, name, created_at FROM categories ORDER BY name_key, id"
+            ).fetchall()
+            connection.commit()
+        return tuple(
+            Category(int(row["id"]), row["name"], row["created_at"])
+            for row in rows
+        )
+
+    def delete_category(self, name: str) -> bool:
+        _, name_key = _category_name(name)
+        if not self.path.is_file():
+            return False
+        with _open_connection(self.path) as connection:
+            _create_schema(connection)
+            cursor = connection.execute(
+                "DELETE FROM categories WHERE name_key = ?", (name_key,)
+            )
+            connection.commit()
+        return cursor.rowcount == 1
+
+    def assign_category(self, publication_id: str, name: str) -> Category:
+        tracked = {item.publication_id for item in self.tracked()}
+        if publication_id not in tracked:
+            raise ValueError("publication must be tracked before assigning a category")
+        category = self.create_category(name)
+        with _open_connection(self.path) as connection:
+            connection.execute(
+                """
+                INSERT INTO publication_categories(publication_id, category_id)
+                VALUES(?, ?)
+                ON CONFLICT(publication_id, category_id) DO NOTHING
+                """,
+                (publication_id, category.id),
+            )
+            connection.commit()
+        return category
+
+    def remove_category(self, publication_id: str, name: str) -> bool:
+        _, name_key = _category_name(name)
+        if not self.path.is_file():
+            return False
+        with _open_connection(self.path) as connection:
+            _create_schema(connection)
+            cursor = connection.execute(
+                """
+                DELETE FROM publication_categories
+                WHERE publication_id = ?
+                  AND category_id = (
+                    SELECT id FROM categories WHERE name_key = ?
+                  )
+                """,
+                (publication_id, name_key),
+            )
+            connection.commit()
+        return cursor.rowcount == 1
+
+    def category_members(self, name: str) -> tuple[str, ...]:
+        _, name_key = _category_name(name)
+        if not self.path.is_file():
+            return ()
+        with _open_connection(self.path) as connection:
+            _create_schema(connection)
+            exists = connection.execute(
+                "SELECT 1 FROM categories WHERE name_key = ?", (name_key,)
+            ).fetchone()
+            if exists is None:
+                raise KeyError(name)
+            rows = connection.execute(
+                """
+                SELECT publication_categories.publication_id
+                FROM publication_categories
+                JOIN categories ON categories.id = publication_categories.category_id
+                WHERE categories.name_key = ?
+                ORDER BY publication_categories.publication_id
+                """,
+                (name_key,),
+            ).fetchall()
+            connection.commit()
+        return tuple(row["publication_id"] for row in rows)
+
+    def publication_categories(self, publication_id: str) -> tuple[Category, ...]:
+        if not self.path.is_file():
+            return ()
+        with _open_connection(self.path) as connection:
+            _create_schema(connection)
+            rows = connection.execute(
+                """
+                SELECT categories.id, categories.name, categories.created_at
+                FROM categories
+                JOIN publication_categories
+                  ON publication_categories.category_id = categories.id
+                WHERE publication_categories.publication_id = ?
+                ORDER BY categories.name_key, categories.id
+                """,
+                (publication_id,),
+            ).fetchall()
+            connection.commit()
+        return tuple(
+            Category(int(row["id"]), row["name"], row["created_at"])
             for row in rows
         )
 

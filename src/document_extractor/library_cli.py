@@ -113,6 +113,41 @@ def build_parser() -> argparse.ArgumentParser:
     tracked = subparsers.add_parser("tracked", help="Liste les publications suivies")
     _add_paths(tracked)
     _add_state_path(tracked)
+    categories = subparsers.add_parser("categories", help="Liste les catégories")
+    _add_paths(categories)
+    _add_state_path(categories)
+    category_create = subparsers.add_parser(
+        "category-create", help="Crée une catégorie"
+    )
+    category_create.add_argument("name")
+    _add_paths(category_create)
+    _add_state_path(category_create)
+    category_add = subparsers.add_parser(
+        "category-add", help="Classe une publication suivie"
+    )
+    category_add.add_argument("name")
+    category_add.add_argument("publication_id")
+    _add_paths(category_add)
+    _add_state_path(category_add)
+    category_remove = subparsers.add_parser(
+        "category-remove", help="Retire une publication d’une catégorie"
+    )
+    category_remove.add_argument("name")
+    category_remove.add_argument("publication_id")
+    _add_paths(category_remove)
+    _add_state_path(category_remove)
+    category_delete = subparsers.add_parser(
+        "category-delete", help="Supprime une catégorie sans retirer les publications"
+    )
+    category_delete.add_argument("name")
+    _add_paths(category_delete)
+    _add_state_path(category_delete)
+    category_members = subparsers.add_parser(
+        "category-members", help="Liste les publications d’une catégorie"
+    )
+    category_members.add_argument("name")
+    _add_paths(category_members)
+    _add_state_path(category_members)
     unread = subparsers.add_parser("unread", help="Liste les parties non terminées")
     unread.add_argument("--publication-id")
     _add_paths(unread)
@@ -210,6 +245,12 @@ def main(argv: list[str] | None = None) -> int:
             "update",
             "progress",
             "read",
+            "categories",
+            "category-create",
+            "category-add",
+            "category-remove",
+            "category-delete",
+            "category-members",
         }:
             state = LibraryState(_state_path(args, root))
             service = LibraryService(index, state)
@@ -245,6 +286,63 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 return 0
             index.ensure(root)
+            if args.command == "categories":
+                payload = [asdict(category) for category in state.categories()]
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                elif not payload:
+                    print("Aucune catégorie.")
+                else:
+                    for category in payload:
+                        members = len(state.category_members(category["name"]))
+                        print(f"{category['name']} | {members} publication(s)")
+                return 0
+            if args.command == "category-create":
+                category = state.create_category(args.name)
+                payload = asdict(category)
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(f"Catégorie prête : {category.name}")
+                return 0
+            if args.command == "category-add":
+                if index.load_publication(args.publication_id) is None:
+                    raise KeyError(args.publication_id)
+                category = state.assign_category(args.publication_id, args.name)
+                payload = {"category": category.name, "publication_id": args.publication_id}
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(f"Publication classée dans : {category.name}")
+                return 0
+            if args.command == "category-remove":
+                removed = state.remove_category(args.publication_id, args.name)
+                if args.as_json:
+                    print(json.dumps({"removed": removed}, sort_keys=True))
+                else:
+                    print("Classement retiré." if removed else "Classement absent.")
+                return 0 if removed else 2
+            if args.command == "category-delete":
+                removed = state.delete_category(args.name)
+                if args.as_json:
+                    print(json.dumps({"removed": removed}, sort_keys=True))
+                else:
+                    print("Catégorie supprimée." if removed else "Catégorie absente.")
+                return 0 if removed else 2
+            if args.command == "category-members":
+                publications = service.categorized(args.name)
+                payload = [
+                    {"publication_id": item.id, "title": item.title}
+                    for item in publications
+                ]
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                elif not payload:
+                    print("Aucune publication dans cette catégorie.")
+                else:
+                    for item in payload:
+                        print(f"{item['publication_id']} | {item['title']}")
+                return 0
             if args.command == "read":
                 reader_output = redirect_stdout(sys.stderr) if args.as_json else nullcontext()
                 with reader_output:
@@ -375,6 +473,7 @@ def main(argv: list[str] | None = None) -> int:
                     "completed_parts": view.completed_parts,
                     "unread_parts": view.unread_parts,
                     "added_at": view.tracked.added_at,
+                    "categories": [category.name for category in view.categories],
                 }
                 for view in views
             ]

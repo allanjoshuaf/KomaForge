@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 from document_extractor.library import LibraryIndex
@@ -50,6 +52,77 @@ class LibraryStateTests(unittest.TestCase):
             self.assertEqual(len(state.progress()), 1)
             self.assertEqual(views[0].completed_parts, 1)
             self.assertEqual(views[0].unread_parts, 0)
+
+    def test_version_one_state_is_migrated_without_losing_progress(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "state.sqlite"
+            with closing(sqlite3.connect(path)) as connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE state_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                    INSERT INTO state_metadata VALUES('schema_version', '1');
+                    CREATE TABLE tracked_publications(
+                        publication_id TEXT PRIMARY KEY, added_at TEXT NOT NULL
+                    );
+                    CREATE TABLE reading_progress(
+                        part_id TEXT PRIMARY KEY,
+                        publication_id TEXT NOT NULL,
+                        resource_position INTEGER NOT NULL,
+                        completed INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL,
+                        FOREIGN KEY(publication_id)
+                            REFERENCES tracked_publications(publication_id)
+                            ON DELETE CASCADE
+                    );
+                    INSERT INTO tracked_publications VALUES('publication-one', 'then');
+                    INSERT INTO reading_progress VALUES(
+                        'part-one', 'publication-one', 7, 0, 'then'
+                    );
+                    """
+                )
+                connection.commit()
+            state = LibraryState(path)
+
+            category = state.create_category("À lire")
+
+            self.assertEqual(category.name, "À lire")
+            self.assertEqual(state.tracked()[0].publication_id, "publication-one")
+            self.assertEqual(state.progress()[0].resource_position, 7)
+            with closing(sqlite3.connect(path)) as connection:
+                version = connection.execute(
+                    "SELECT value FROM state_metadata WHERE key = 'schema_version'"
+                ).fetchone()[0]
+            self.assertEqual(version, "2")
+
+    def test_categories_are_casefolded_and_assign_only_tracked_publications(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = LibraryState(Path(temp) / "state.sqlite")
+            state.track("publication-one")
+
+            first = state.assign_category("publication-one", "  À   lire  ")
+            second = state.create_category("à LIRE")
+
+            self.assertEqual(first.id, second.id)
+            self.assertEqual(first.name, "À lire")
+            self.assertEqual(state.category_members("À LIRE"), ("publication-one",))
+            self.assertEqual(state.publication_categories("publication-one"), (first,))
+            with self.assertRaisesRegex(ValueError, "must be tracked"):
+                state.assign_category("missing", "À lire")
+
+    def test_category_memberships_follow_untrack_and_category_delete(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = LibraryState(Path(temp) / "state.sqlite")
+            state.track("publication-one")
+            state.track("publication-two")
+            state.assign_category("publication-one", "Favoris")
+            state.assign_category("publication-two", "Favoris")
+
+            self.assertTrue(state.remove_category("publication-two", "favoris"))
+            self.assertEqual(state.category_members("Favoris"), ("publication-one",))
+            self.assertTrue(state.untrack("publication-one"))
+            self.assertEqual(state.category_members("Favoris"), ())
+            self.assertTrue(state.delete_category("FAVORIS"))
+            self.assertEqual(state.categories(), ())
 
     def test_unknown_publication_cannot_be_tracked(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -195,6 +268,18 @@ class LibraryStateTests(unittest.TestCase):
             self.assertEqual(history[0].publication.id, publication.id)
             self.assertEqual(history[0].part.id, part.id)
             self.assertEqual(history[0].progress.resource_position, 1)
+
+    def test_service_resolves_category_members_to_current_publications(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, state, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            service.track(publication.id)
+            state.assign_category(publication.id, "En cours")
+
+            categorized = service.categorized("en COURS")
+
+            self.assertEqual([item.id for item in categorized], [publication.id])
+            self.assertEqual(service.tracked()[0].categories[0].name, "En cours")
 
     def test_open_artifact_uses_the_validated_local_path(self):
         with tempfile.TemporaryDirectory() as temp:

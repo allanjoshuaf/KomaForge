@@ -58,6 +58,7 @@ PLATFORM_MESSAGES = {
         "coverage": "Couverture",
         "integrity": "Intégrité",
         "tracked": "Suivies",
+        "categories": "Catégories",
         "unread": "non lues",
         "completed": "terminées",
         "attempts": "tentatives",
@@ -78,6 +79,15 @@ PLATFORM_MESSAGES = {
         "library_unread": "Afficher les parties non lues",
         "library_downloaded": "Afficher les téléchargements disponibles",
         "library_history": "Afficher l’historique de lecture",
+        "library_categories": "Gérer les catégories",
+        "category_list": "Lister les catégories",
+        "category_create": "Créer une catégorie",
+        "category_add": "Classer une publication",
+        "category_remove": "Retirer une publication d’une catégorie",
+        "category_delete": "Supprimer une catégorie",
+        "category_members": "Afficher le contenu d’une catégorie",
+        "category_name": "Nom de la catégorie",
+        "category_empty": "Aucune catégorie.",
         "library_update": "Planifier les mises à jour des publications suivies",
         "library_add": "Ajouter une URL et suivre la publication",
         "library_track": "Suivre une publication",
@@ -151,6 +161,7 @@ PLATFORM_MESSAGES = {
         "coverage": "Coverage",
         "integrity": "Integrity",
         "tracked": "Tracked",
+        "categories": "Categories",
         "unread": "unread",
         "completed": "completed",
         "attempts": "attempts",
@@ -171,6 +182,15 @@ PLATFORM_MESSAGES = {
         "library_unread": "Show unread parts",
         "library_downloaded": "Show downloaded publications",
         "library_history": "Show reading history",
+        "library_categories": "Manage categories",
+        "category_list": "List categories",
+        "category_create": "Create a category",
+        "category_add": "Assign a publication",
+        "category_remove": "Remove a publication from a category",
+        "category_delete": "Delete a category",
+        "category_members": "Show category contents",
+        "category_name": "Category name",
+        "category_empty": "No categories.",
         "library_update": "Queue updates for tracked publications",
         "library_add": "Add a URL and track the publication",
         "library_track": "Track a publication",
@@ -244,6 +264,7 @@ PLATFORM_MESSAGES = {
         "coverage": "Покрытие",
         "integrity": "Целостность",
         "tracked": "Отслеживается",
+        "categories": "Категории",
         "unread": "не прочитано",
         "completed": "завершено",
         "attempts": "попытки",
@@ -264,6 +285,15 @@ PLATFORM_MESSAGES = {
         "library_unread": "Непрочитанные части",
         "library_downloaded": "Загруженные публикации",
         "library_history": "История чтения",
+        "library_categories": "Управление категориями",
+        "category_list": "Список категорий",
+        "category_create": "Создать категорию",
+        "category_add": "Добавить публикацию в категорию",
+        "category_remove": "Удалить публикацию из категории",
+        "category_delete": "Удалить категорию",
+        "category_members": "Содержимое категории",
+        "category_name": "Название категории",
+        "category_empty": "Категорий нет.",
         "library_update": "Проверить обновления отслеживаемых публикаций",
         "library_add": "Добавить URL и отслеживать публикацию",
         "library_track": "Начать отслеживание",
@@ -337,6 +367,7 @@ PLATFORM_MESSAGES = {
         "coverage": "覆盖率",
         "integrity": "完整性",
         "tracked": "已跟踪",
+        "categories": "分类",
         "unread": "未读",
         "completed": "已完成",
         "attempts": "尝试次数",
@@ -357,6 +388,15 @@ PLATFORM_MESSAGES = {
         "library_unread": "显示未读部分",
         "library_downloaded": "显示已下载出版物",
         "library_history": "显示阅读历史",
+        "library_categories": "管理分类",
+        "category_list": "列出分类",
+        "category_create": "创建分类",
+        "category_add": "将出版物加入分类",
+        "category_remove": "从分类中移除出版物",
+        "category_delete": "删除分类",
+        "category_members": "显示分类内容",
+        "category_name": "分类名称",
+        "category_empty": "暂无分类。",
         "library_update": "为已跟踪出版物安排更新",
         "library_add": "添加 URL 并跟踪出版物",
         "library_track": "跟踪出版物",
@@ -518,6 +558,7 @@ def _show_library_status(
     ui.key_value(_text(ui, "integrity"), _format_mapping(status["artifact_integrity"]))
     service = LibraryService(index, state)
     ui.key_value(_text(ui, "tracked"), len(service.tracked()))
+    ui.key_value(_text(ui, "categories"), len(state.categories()))
     ui.key_value(_text(ui, "unread"), len(service.unread()))
     jobs = JobQueue(root / ".komaforge" / "jobs.sqlite").list()
     ui.key_value(
@@ -605,6 +646,65 @@ def _show_history(ui: TerminalUI, service: LibraryService) -> None:
         )
 
 
+def category_menu(
+    ui: TerminalUI,
+    state: LibraryState,
+    service: LibraryService,
+) -> None:
+    while True:
+        ui.section(_text(ui, "library_categories"))
+        ui.option(1, _text(ui, "category_list"))
+        ui.option(2, _text(ui, "category_members"))
+        ui.option(3, _text(ui, "category_create"))
+        ui.option(4, _text(ui, "category_add"))
+        ui.option(5, _text(ui, "category_remove"))
+        ui.option(6, _text(ui, "category_delete"))
+        ui.option(7, _text(ui, "back"))
+        choice = ui.prompt(ui.text("choice"), "1") or "1"
+        if choice == "7":
+            return
+        try:
+            if choice == "1":
+                categories = state.categories()
+                if not categories:
+                    ui.notice(_text(ui, "category_empty"), "info")
+                for category in categories:
+                    ui.item(
+                        category.name,
+                        f"{len(state.category_members(category.name))} "
+                        f"{_text(ui, 'publications').casefold()}",
+                    )
+            elif choice == "2":
+                name = ui.prompt(_text(ui, "category_name"))
+                publications = service.categorized(name)
+                if not publications:
+                    ui.notice(_text(ui, "publication_empty"), "info")
+                for publication in publications:
+                    ui.item(publication.title, publication.id)
+            elif choice == "3":
+                category = state.create_category(ui.prompt(_text(ui, "category_name")))
+                ui.notice(f"{_text(ui, 'category_create')} : {category.name}", "success")
+            elif choice == "4":
+                name = ui.prompt(_text(ui, "category_name"))
+                publication_id = ui.prompt(_text(ui, "publication_id"))
+                if service.index.load_publication(publication_id) is None:
+                    raise KeyError(publication_id)
+                category = state.assign_category(publication_id, name)
+                ui.notice(f"{_text(ui, 'category_add')} : {category.name}", "success")
+            elif choice == "5":
+                name = ui.prompt(_text(ui, "category_name"))
+                publication_id = ui.prompt(_text(ui, "publication_id"))
+                removed = state.remove_category(publication_id, name)
+                ui.notice(_text(ui, "category_remove"), "success" if removed else "warning")
+            elif choice == "6":
+                removed = state.delete_category(ui.prompt(_text(ui, "category_name")))
+                ui.notice(_text(ui, "category_delete"), "success" if removed else "warning")
+            elif choice not in {str(value) for value in range(1, 8)}:
+                ui.error(_text(ui, "submenu_invalid"))
+        except (KeyError, OSError, RuntimeError, ValueError) as exc:
+            ui.error(str(exc))
+
+
 def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
     library_root = (root or default_output_root()).expanduser().resolve()
     index = LibraryIndex(library_root / ".komaforge" / "library.sqlite")
@@ -623,22 +723,23 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
         ui.option(7, _text(ui, "library_unread"))
         ui.option(8, _text(ui, "library_history"))
         ui.section(_text(ui, "library_actions"))
-        ui.option(9, _text(ui, "library_read"))
-        ui.option(10, _text(ui, "library_open"))
-        ui.option(11, _text(ui, "library_add"))
-        ui.option(12, _text(ui, "library_update"))
-        ui.option(13, _text(ui, "library_rebuild"))
-        ui.option(14, _text(ui, "library_track"))
-        ui.option(15, _text(ui, "library_untrack"))
-        ui.option(16, _text(ui, "library_progress"))
-        ui.option(17, _text(ui, "back"))
+        ui.option(9, _text(ui, "library_categories"))
+        ui.option(10, _text(ui, "library_read"))
+        ui.option(11, _text(ui, "library_open"))
+        ui.option(12, _text(ui, "library_add"))
+        ui.option(13, _text(ui, "library_update"))
+        ui.option(14, _text(ui, "library_rebuild"))
+        ui.option(15, _text(ui, "library_track"))
+        ui.option(16, _text(ui, "library_untrack"))
+        ui.option(17, _text(ui, "library_progress"))
+        ui.option(18, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "17":
+        if choice == "18":
             return
         try:
             if choice == "1":
                 _show_library_status(ui, index, state, library_root)
-            elif choice == "13":
+            elif choice == "14":
                 summary = index.rebuild(library_root)
                 ui.notice(_text(ui, "library_rebuild"), "success")
                 ui.key_value(_text(ui, "works"), summary.works)
@@ -667,7 +768,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
             elif choice == "8" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_history"))
                 _show_history(ui, service)
-            elif choice == "12" and _library_ready(ui, index, library_root):
+            elif choice == "13" and _library_ready(ui, index, library_root):
                 queued = service.queue_updates(
                     JobQueue(library_root / ".komaforge" / "jobs.sqlite")
                 )
@@ -676,14 +777,16 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     "success",
                 )
             elif choice == "9" and _library_ready(ui, index, library_root):
+                category_menu(ui, state, service)
+            elif choice == "10" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 path = service.read_artifact(publication_id)
                 ui.notice(f"{_text(ui, 'library_read')} : {path.name}", "success")
-            elif choice == "10" and _library_ready(ui, index, library_root):
+            elif choice == "11" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 path = service.open_artifact(publication_id)
                 ui.notice(f"{_text(ui, 'library_open')} : {path.name}", "success")
-            elif choice == "11":
+            elif choice == "12":
                 source_url = ui.prompt(_text(ui, "url"))
                 output_format = ui.prompt(_text(ui, "format"), "original").casefold()
                 if output_format not in OUTPUT_FORMATS:
@@ -705,18 +808,18 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     f"{_text(ui, 'library_add')} : {added.publication.title}",
                     "success",
                 )
-            elif choice == "14" and _library_ready(ui, index, library_root):
+            elif choice == "15" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 service.track(publication_id)
                 ui.notice(_text(ui, "library_track"), "success")
-            elif choice == "15" and _library_ready(ui, index, library_root):
+            elif choice == "16" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 removed = state.untrack(publication_id)
                 ui.notice(
                     _text(ui, "library_untrack"),
                     "success" if removed else "warning",
                 )
-            elif choice == "16" and _library_ready(ui, index, library_root):
+            elif choice == "17" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
                 part_id = ui.prompt(_text(ui, "part_id"))
                 position = int(ui.prompt(_text(ui, "position")))
@@ -730,7 +833,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     completed=completed,
                 )
                 ui.notice(_text(ui, "library_progress"), "success")
-            elif choice not in {str(value) for value in range(1, 18)}:
+            elif choice not in {str(value) for value in range(1, 19)}:
                 ui.error(_text(ui, "submenu_invalid"))
         except (KeyError, OSError, RuntimeError, ValueError) as exc:
             ui.error(str(exc))

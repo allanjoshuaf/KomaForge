@@ -12,6 +12,7 @@ from document_extractor.interactive_console import (
 )
 from document_extractor.jobs import JobAction, JobQueue, JobStatus
 from document_extractor.library import SCHEMA_VERSION, LibraryIndex
+from document_extractor.library_state import LibraryState
 from document_extractor.terminal_ui import TerminalUI
 
 
@@ -47,7 +48,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             root = Path(temp)
             stream = StringIO()
             ui = TerminalUI("fr", stream=stream)
-            answers = iter(("4", "13", "1", "17", "1"))
+            answers = iter(("4", "14", "1", "18", "1"))
 
             with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
                 mode = interactive_hub(ui, root=root)
@@ -59,6 +60,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             self.assertIn("[OK] Reconstruire l’index", rendered)
             self.assertIn("Œuvres: 0", rendered)
             self.assertIn("Suivies: 0", rendered)
+            self.assertIn("Catégories: 0", rendered)
             self.assertIn("Lire dans KomaForge", rendered)
 
     def test_job_can_be_added_and_listed_from_the_hub(self):
@@ -89,6 +91,21 @@ class InteractiveConsoleTests(unittest.TestCase):
             self.assertIs(jobs[0].status, JobStatus.PENDING)
             self.assertIn(jobs[0].id, rendered)
             self.assertIn("inspect · pending", rendered)
+
+    def test_category_can_be_created_from_the_library_menu(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stream = StringIO()
+            ui = TerminalUI("fr", stream=stream)
+            answers = iter(("4", "14", "9", "3", "Favoris", "1", "7", "18", "1"))
+
+            with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
+                mode = interactive_hub(ui, root=root)
+
+            categories = LibraryState(root / ".komaforge" / "state.sqlite").categories()
+            self.assertEqual(mode, "guided")
+            self.assertEqual([category.name for category in categories], ["Favoris"])
+            self.assertIn("[OK] Créer une catégorie : Favoris", stream.getvalue())
 
 
 if __name__ == "__main__":

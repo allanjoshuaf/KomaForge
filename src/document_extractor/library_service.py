@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .library import LibraryIndex
-from .library_state import LibraryState, ReadingProgress, TrackedPublication
+from .library_state import Category, LibraryState, ReadingProgress, TrackedPublication
 from .jobs import Job, JobAction, JobQueue, JobStatus
 from .models import Part, Publication
 from .paths import canonical_source_identity
@@ -23,6 +23,7 @@ class TrackedPublicationView:
     tracked: TrackedPublication
     completed_parts: int
     unread_parts: int
+    categories: tuple[Category, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,9 +166,20 @@ class LibraryService:
                     tracked=tracked,
                     completed_parts=completed,
                     unread_parts=max(0, len(publication.parts) - completed),
+                    categories=self.state.publication_categories(publication.id),
                 )
             )
         return tuple(views)
+
+    def categorized(self, name: str) -> tuple[Publication, ...]:
+        publications: list[Publication] = []
+        for publication_id in self.state.category_members(name):
+            publication = self.index.load_publication(publication_id)
+            if publication is not None:
+                publications.append(publication)
+        return tuple(
+            sorted(publications, key=lambda item: (item.title.casefold(), item.id))
+        )
 
     def unread(self, publication_id: str | None = None) -> tuple[UnreadPartView, ...]:
         """List tracked parts that have not been explicitly completed."""

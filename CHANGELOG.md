@@ -4,6 +4,9 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- les publications suivies peuvent maintenant être rangées dans plusieurs
+  catégories locales, gérées depuis la commande ou le menu Bibliothèque et
+  conservées lors de la reconstruction de l’index ;
 - un lecteur local intégré ouvre maintenant les CBZ et dossiers d’images, reprend
   la dernière page, enregistre la progression et reste utilisable au clavier sur
   ordinateur comme sur écran étroit ; PDF, EPUB et CBR conservent l’ouverture

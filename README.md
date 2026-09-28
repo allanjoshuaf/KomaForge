@@ -212,6 +212,11 @@ komaforge library open IDENTIFIANT_PUBLICATION
 komaforge library status
 komaforge library track IDENTIFIANT_PUBLICATION
 komaforge library tracked
+komaforge library categories
+komaforge library category-add "À lire" IDENTIFIANT_PUBLICATION
+komaforge library category-members "À lire"
+komaforge library category-remove "À lire" IDENTIFIANT_PUBLICATION
+komaforge library category-delete "À lire"
 komaforge library unread
 komaforge library unread --publication-id IDENTIFIANT_PUBLICATION
 komaforge library update
@@ -243,6 +248,11 @@ terminée et sa dernière position enregistrée, globalement ou pour une publica
 doublon lorsqu’une vérification identique est déjà en attente ou en cours.
 `downloaded` ne retient que les artefacts encore présents et `history` résout la
 progression persistante vers les titres de publication et de partie actuels.
+Les catégories servent à organiser une même publication suivie dans plusieurs
+listes locales, par exemple `À lire`, `En cours` ou `Favoris`. Elles sont conservées
+dans `state.sqlite`, survivent à la reconstruction de l’index et peuvent aussi être
+gérées depuis le menu Bibliothèque. Retirer une publication du suivi supprime ses
+classements ; supprimer une catégorie ne supprime ni la publication ni son archive.
 `read` ouvre les CBZ et les dossiers d’images dans le lecteur local de KomaForge.
 Il fonctionne hors ligne sur `127.0.0.1`, avec une adresse de session aléatoire,
 sans téléverser les pages. La position est enregistrée automatiquement ; les

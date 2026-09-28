@@ -206,6 +206,30 @@ class LibraryCliTests(unittest.TestCase):
             self.assertEqual(status["works"], 1)
             self.assertEqual(status["coverage"], {"complete": 1})
 
+    def test_category_commands_group_tracked_publications(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            index = Path(temp) / "library.sqlite"
+            state = Path(temp) / "state.sqlite"
+            write_manifest(root / "One" / "pages.json")
+            with redirect_stdout(StringIO()):
+                main(["rebuild", "--root", str(root), "--index", str(index)])
+            publication_id = LibraryIndex(index).list_publications()[0]["id"]
+            common = ["--root", str(root), "--index", str(index), "--state", str(state)]
+            with redirect_stdout(StringIO()):
+                self.assertEqual(main(["track", publication_id, *common]), 0)
+                self.assertEqual(
+                    main(["category-add", "À lire", publication_id, *common]), 0
+                )
+
+            members_output = StringIO()
+            with redirect_stdout(members_output):
+                code = main(["category-members", "à LIRE", *common, "--json"])
+            members = json.loads(members_output.getvalue())
+
+            self.assertEqual(code, 0)
+            self.assertEqual(members, [{"publication_id": publication_id, "title": "One"}])
+
     def test_track_progress_and_tracked_views(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "outputs"
