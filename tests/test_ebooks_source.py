@@ -91,6 +91,25 @@ class EBooksSourceTests(unittest.TestCase):
         self.assertEqual(publication.source_url, PRODUCT_URL)
 
     @patch("document_extractor.sources.ebooks.discover_linked_reader")
+    def test_product_reference_reuses_an_already_open_reader(
+        self,
+        discover_reader_mock,
+    ):
+        source = EBooksSource()
+        publication = source.get_publication(
+            SourceReference("ebooks", PRODUCT_URL, PRODUCT_URL),
+            SourceSession(
+                browser_context=object(),
+                page=FakeReaderPage(),
+                options={"title": "The Demon Star by Jesse Aragon (ebook)"},
+            ),
+        )
+
+        self.assertEqual(publication.source_url, PRODUCT_URL)
+        self.assertEqual(publication.parts[0].source_url, READER_URL)
+        discover_reader_mock.assert_not_called()
+
+    @patch("document_extractor.sources.ebooks.discover_linked_reader")
     def test_incomplete_epub_coverage_and_secret_locator_are_preserved_safely(
         self,
         discover_reader_mock,

@@ -147,7 +147,14 @@ class EBooksSource:
             raise RuntimeError("EBooksSource requires a prepared browser page")
         reference_url = reference.url or reference.value
         stable_url = _stable_publication_url(reference_url, session)
-        reader_url = reference_url if _is_reader_url(reference_url) else None
+        current_url = str(getattr(session.page, "url", "") or "")
+        reader_url = (
+            reference_url
+            if _is_reader_url(reference_url)
+            else current_url
+            if _is_reader_url(current_url)
+            else None
+        )
         reader_action = None
         if reader_url is None:
             if session.browser_context is None:

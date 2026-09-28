@@ -94,6 +94,7 @@ def publication_from_catalog(
         metadata={
             "catalog_source": catalog.source,
             "access_limited": catalog.access_limited,
+            "publication_type": "work",
         },
     )
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .models import Publication, UpdateResult
 from .paths import canonical_source_identity
@@ -12,6 +12,7 @@ from .sources import (
     MatchResult,
     SourceAdapter,
     SourceRegistry,
+    SourceReference,
     SourceSession,
     UpdateCapability,
     build_default_registry,
@@ -44,6 +45,27 @@ def resolve_source(
     if not match.matched:
         raise ValueError(f"no KomaForge source accepts URL: {url!r}")
     return SourceRoute(fallback, match, False)
+
+
+def load_source_publication(
+    route: SourceRoute,
+    reference: SourceReference,
+    session: SourceSession,
+) -> Publication:
+    """Load one normalized publication through the selected adapter contract."""
+
+    if reference.source_id != route.adapter.id:
+        raise ValueError("source reference does not belong to the selected adapter")
+    publication = route.adapter.get_publication(reference, session)
+    if publication.source_id != route.adapter.id:
+        raise RuntimeError(
+            f"source adapter {route.adapter.id!r} returned publication for "
+            f"{publication.source_id!r}"
+        )
+    parts = route.adapter.get_parts(publication, session)
+    if parts == publication.parts:
+        return publication
+    return replace(publication, parts=parts)
 
 
 def plan_publication_updates(

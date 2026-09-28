@@ -346,7 +346,9 @@ leurs modèles normalisés de publication et de partie. Une source spécialisée
 reconnue qui échoue produit donc son propre diagnostic au lieu de retomber
 silencieusement sur la détection web générique. Core conserve la navigation, la
 validation des ressources et la création des formats afin que ces garanties restent
-communes à toutes les sources.
+communes à toutes les sources. Le chargement d’une publication et de ses parties
+passe par le même contrat applicatif pour tous les adaptateurs ; ajouter une source
+spécialisée ne nécessite plus d’ajouter son identifiant dans l’orchestrateur.
 Les commandes séparées `komaforge-library`, `komaforge-jobs` et
 `komaforge-sources` restent installées pour les scripts existants.
 

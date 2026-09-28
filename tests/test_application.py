@@ -2,9 +2,19 @@ from __future__ import annotations
 
 import unittest
 
-from document_extractor.application import plan_publication_updates, resolve_source
+from document_extractor.application import (
+    load_source_publication,
+    plan_publication_updates,
+    resolve_source,
+)
 from document_extractor.models import Coverage, Part, PartKind, Publication
-from document_extractor.sources import MatchContext, MatchResult, SourceSession
+from document_extractor.sources import (
+    MatchContext,
+    MatchResult,
+    SourceReference,
+    SourceRegistry,
+    SourceSession,
+)
 from document_extractor.updates import compare_part_updates
 
 
@@ -26,6 +36,16 @@ class UpdatingSource:
 
     def check_updates(self, publication, known_parts, session):
         return compare_part_updates(publication, known_parts, publication.parts)
+
+
+class LoadingSource(UpdatingSource):
+    id = "loading"
+
+    def get_publication(self, reference, session):
+        return publication((), source_id=self.id)
+
+    def get_parts(self, publication, session):
+        return (chapter(1),)
 
 
 def publication(parts, *, source_id="updates", url="https://example.test/work"):
@@ -67,6 +87,22 @@ class SourceRoutingTests(unittest.TestCase):
     def test_non_web_url_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "no KomaForge source"):
             resolve_source("file:///tmp/book.pdf")
+
+    def test_selected_adapter_loads_publication_and_parts_through_one_contract(self):
+        adapter = LoadingSource()
+        route = resolve_source(
+            "https://example.test/work",
+            registry=SourceRegistry((adapter,)),
+        )
+
+        loaded = load_source_publication(
+            route,
+            SourceReference(adapter.id, "work", "https://example.test/work"),
+            SourceSession(),
+        )
+
+        self.assertEqual(loaded.source_id, adapter.id)
+        self.assertEqual([part.number for part in loaded.parts], ["1"])
 
 
 class ApplicationUpdateTests(unittest.TestCase):
