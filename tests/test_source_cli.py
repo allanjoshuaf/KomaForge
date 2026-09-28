@@ -58,7 +58,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertTrue(generic["capabilities"]["resources"])
 
         self.assertEqual(sources[0]["status"], "validated")
-        self.assertEqual(sources[0]["last_verified"], "2026-09-27")
+        self.assertEqual(sources[0]["last_verified"], "2026-09-28")
         self.assertEqual(sources[1]["languages"], ["en"])
         self.assertEqual(sources[1]["access"], "source_limited")
         self.assertEqual(sources[2]["status"], "degraded")
@@ -105,6 +105,23 @@ class SourceCliTests(unittest.TestCase):
             [family["id"] for family in families],
             ["selectable-parts"],
         )
+
+    def test_status_summarizes_sources_candidates_and_families(self):
+        output = StringIO()
+
+        with redirect_stdout(output):
+            code = main(["status", "--json"])
+        status = json.loads(output.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(status["sources"]["total"], 5)
+        self.assertEqual(status["sources"]["by_status"]["validated"], 2)
+        self.assertEqual(status["sources"]["by_status"]["degraded"], 1)
+        self.assertEqual(status["sources"]["by_status"]["experimental"], 2)
+        self.assertEqual(status["sources"]["search"], ["mangadex"])
+        self.assertEqual(status["sources"]["browse"], ["mangadex"])
+        self.assertEqual(status["candidates"]["by_status"]["validated"], 2)
+        self.assertEqual(status["families"]["total"], 4)
 
     def test_candidates_are_distinct_from_specialized_sources(self):
         output = StringIO()

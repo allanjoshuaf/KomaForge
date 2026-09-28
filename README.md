@@ -327,6 +327,7 @@ komaforge sources list --status degraded
 komaforge sources list --status experimental
 komaforge sources list --integration generic
 komaforge sources list --access session_dependent
+komaforge sources status
 komaforge sources families
 komaforge sources candidates
 komaforge sources match "https://global.manga-up.com/manga/126"
@@ -339,6 +340,10 @@ komaforge sources latest --source mangadex
 la compatibilité (`validated`, `degraded`, `experimental` ou `offline`),
 l’intégration (`specialized` ou `generic`) et l’accès observé (`full`,
 `source_limited`, `session_dependent` ou `variable`).
+`status` fournit un résumé JSON stable des adaptateurs, candidats et familles par
+état, ainsi que les identifiants capables de rechercher, parcourir ou vérifier les
+mises à jour. Il permet à une future interface de présenter la santé des sources
+sans analyser du texte destiné à l’utilisateur.
 `families` garde séparées les stratégies réutilisables (lecteur paginé, vertical,
 document direct ou parties sélectionnables). `candidates` liste les sites déjà
 observés avec le fallback mais qui n’ont pas encore d’adaptateur spécialisé.

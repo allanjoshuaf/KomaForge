@@ -110,7 +110,7 @@ class MangaUpSource:
         status_reason="catalog discovery and source-limited coverage are regression-tested",
         access=SourceAccess.SOURCE_LIMITED,
         family_ids=("paginated-images",),
-        last_verified="2026-09-27",
+        last_verified="2026-09-28",
     )
 
     def __init__(self) -> None:

@@ -23,6 +23,16 @@ from .sources import (
 from .terminal_ui import SUPPORTED_LANGUAGES, ensure_utf8_stream
 
 
+def _catalog_page(value: str) -> int:
+    try:
+        page = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("page must be an integer from 1 to 1000") from exc
+    if not 1 <= page <= 1000:
+        raise argparse.ArgumentTypeError("page must be an integer from 1 to 1000")
+    return page
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="komaforge-sources",
@@ -76,6 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[value.value for value in SourceAccess],
         help="Filtre les sites par condition d’accès",
     )
+    summary = commands.add_parser(
+        "status",
+        help="Résume la santé des adaptateurs, sites validés et familles",
+    )
+    summary.add_argument("--json", action="store_true", dest="as_json")
     match = commands.add_parser("match", help="Indique la source choisie pour une URL")
     match.add_argument("url")
     match.add_argument("--json", action="store_true", dest="as_json")
@@ -88,7 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
         if command == "search":
             catalog.add_argument("query")
         catalog.add_argument("--source")
-        catalog.add_argument("--page", type=int, choices=range(1, 1001), default=1)
+        catalog.add_argument(
+            "--page",
+            type=_catalog_page,
+            default=1,
+            metavar="1-1000",
+        )
         catalog.add_argument(
             "--language",
             choices=SUPPORTED_LANGUAGES,
@@ -233,6 +253,48 @@ def candidate_records() -> tuple[dict, ...]:
     )
 
 
+def _status_counts(records: tuple[dict, ...]) -> dict[str, int]:
+    return {
+        status.value: sum(record["status"] == status.value for record in records)
+        for status in SourceStatus
+    }
+
+
+def source_summary() -> dict:
+    sources = source_records()
+    candidates = candidate_records()
+    families = family_records()
+    return {
+        "sources": {
+            "total": len(sources),
+            "by_status": _status_counts(sources),
+            "search": [
+                source["id"]
+                for source in sources
+                if source["capabilities"]["search"]
+            ],
+            "browse": [
+                source["id"]
+                for source in sources
+                if source["capabilities"]["browse"]
+            ],
+            "update": [
+                source["id"]
+                for source in sources
+                if source["capabilities"]["update"]
+            ],
+        },
+        "candidates": {
+            "total": len(candidates),
+            "by_status": _status_counts(candidates),
+        },
+        "families": {
+            "total": len(families),
+            "by_status": _status_counts(families),
+        },
+    }
+
+
 def describe_url(url: str) -> dict:
     route = resolve_source(url)
     payload = describe_source(route.adapter, specialized=route.specialized)
@@ -283,6 +345,26 @@ def main(argv: list[str] | None = None) -> int:
     ensure_utf8_stream(sys.stderr)
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "status":
+            payload = source_summary()
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                for section in ("sources", "candidates", "families"):
+                    values = payload[section]
+                    counts = ", ".join(
+                        f"{status}={count}"
+                        for status, count in values["by_status"].items()
+                        if count
+                    ) or "empty"
+                    print(f"{section} | total {values['total']} | {counts}")
+                print(
+                    "catalogues | search "
+                    f"{','.join(payload['sources']['search']) or 'none'} | browse "
+                    f"{','.join(payload['sources']['browse']) or 'none'}"
+                )
+            return 0
+
         if args.command in {"search", "popular", "latest"}:
             payload = catalog_query(
                 args.command,

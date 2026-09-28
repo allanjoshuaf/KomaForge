@@ -13,6 +13,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   le menu Sources, puis ajouté et suivi explicitement dans la bibliothèque ;
 - le diagnostic d’une URL SushiScan ou MangaReader.pro conserve désormais le statut
   validé du site tout en exposant son routage par l’adaptateur web générique ;
+- `sources status` fournit un résumé stable des états et capacités du catalogue, et
+  les dates de vérification reflètent les six inspections réelles du 28 septembre ;
 - MangaDex fournit maintenant recherche, populaires, dernières mises à jour,
   catalogue de chapitres et pages originales MangaDex@Home, avec attribution de
   la source et des groupes de traduction conservée dans les métadonnées ;

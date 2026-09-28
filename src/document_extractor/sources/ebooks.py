@@ -123,7 +123,7 @@ class EBooksSource:
         status_reason="reader sessions may expose only a limited sample of the publication",
         access=SourceAccess.SESSION_DEPENDENT,
         family_ids=("direct-document",),
-        last_verified="2026-09-27",
+        last_verified="2026-09-28",
     )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:
