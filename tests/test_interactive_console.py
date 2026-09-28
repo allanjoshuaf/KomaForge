@@ -195,6 +195,12 @@ class InteractiveConsoleTests(unittest.TestCase):
                 "part-two",
                 "Chapter 2",
                 "https://example.test/one/chapter-2",
+                download_job_id=JobQueue(
+                    root / ".komaforge" / "jobs.sqlite"
+                ).enqueue(
+                    JobAction.DOWNLOAD,
+                    "https://example.test/one/chapter-2",
+                ).id,
             )
             stream = StringIO()
             ui = TerminalUI("fr", stream=stream)
@@ -205,8 +211,45 @@ class InteractiveConsoleTests(unittest.TestCase):
 
             self.assertEqual(mode, "guided")
             self.assertIn("Chapter 2", stream.getvalue())
+            self.assertIn("pending", stream.getvalue())
             self.assertIn("nouveautés comme consultées : 1", stream.getvalue())
             self.assertEqual(state.updates(unseen_only=True), ())
+
+    def test_library_reader_can_open_a_selected_part(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_manifest(
+                root / "One" / "pages.json",
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            publication = index.load_publication(index.list_publications()[0]["id"])
+            artifact = root / "One" / "one.cbz"
+            stream = StringIO()
+            ui = TerminalUI("fr", stream=stream)
+            answers = iter(
+                ("4", "11", publication.id, publication.parts[0].id, "23", "1")
+            )
+
+            with patch.object(
+                LibraryService,
+                "read_artifact",
+                return_value=artifact,
+            ) as read_artifact, patch(
+                "builtins.input",
+                side_effect=lambda _prompt: next(answers),
+            ):
+                mode = interactive_hub(ui, root=root)
+
+            self.assertEqual(mode, "guided")
+            read_artifact.assert_called_once_with(
+                publication.id,
+                part_id=publication.parts[0].id,
+            )
+            self.assertIn("one.cbz", stream.getvalue())
 
 
 if __name__ == "__main__":

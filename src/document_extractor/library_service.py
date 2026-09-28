@@ -56,6 +56,7 @@ class ReadingHistoryView:
 class LibraryUpdateView:
     publication: Publication
     update: UpdateEvent
+    download_job: Job | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,14 +292,30 @@ class LibraryService:
                 )
         return tuple(views)
 
-    def updates(self, *, unseen_only: bool = False) -> tuple[LibraryUpdateView, ...]:
+    def updates(
+        self,
+        *,
+        unseen_only: bool = False,
+        queue: JobQueue | None = None,
+    ) -> tuple[LibraryUpdateView, ...]:
         """List newly discovered parts independently from reading progress."""
 
+        jobs_by_id = (
+            {job.id: job for job in queue.list()}
+            if queue is not None
+            else {}
+        )
         views: list[LibraryUpdateView] = []
         for update in self.state.updates(unseen_only=unseen_only):
             publication = self.index.load_publication(update.publication_id)
             if publication is not None:
-                views.append(LibraryUpdateView(publication, update))
+                views.append(
+                    LibraryUpdateView(
+                        publication,
+                        update,
+                        jobs_by_id.get(update.download_job_id),
+                    )
+                )
         return tuple(views)
 
     def mark_updates_seen(self, publication_id: str | None = None) -> int:

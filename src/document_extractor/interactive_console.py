@@ -117,6 +117,7 @@ PLATFORM_MESSAGES = {
         "query": "Recherche",
         "publication_id": "Identifiant de publication",
         "part_id": "Identifiant de partie",
+        "part_id_optional": "Identifiant de partie (Entrée pour reprendre automatiquement)",
         "position": "Position de la ressource",
         "complete": "Partie terminée ?",
         "yes_no": "o/N",
@@ -235,6 +236,7 @@ PLATFORM_MESSAGES = {
         "query": "Search",
         "publication_id": "Publication identifier",
         "part_id": "Part identifier",
+        "part_id_optional": "Part identifier (Enter to resume automatically)",
         "position": "Resource position",
         "complete": "Part completed?",
         "yes_no": "y/N",
@@ -353,6 +355,7 @@ PLATFORM_MESSAGES = {
         "query": "Поиск",
         "publication_id": "ID публикации",
         "part_id": "ID части",
+        "part_id_optional": "ID части (Enter: продолжить автоматически)",
         "position": "Позиция ресурса",
         "complete": "Часть завершена?",
         "yes_no": "д/Н",
@@ -471,6 +474,7 @@ PLATFORM_MESSAGES = {
         "query": "搜索",
         "publication_id": "出版物标识符",
         "part_id": "部分标识符",
+        "part_id_optional": "部分标识符（按 Enter 自动继续）",
         "position": "资源位置",
         "complete": "该部分已完成？",
         "yes_no": "是/否",
@@ -776,15 +780,25 @@ def _show_history(ui: TerminalUI, service: LibraryService) -> None:
         )
 
 
-def _show_updates(ui: TerminalUI, service: LibraryService) -> None:
-    updates = service.updates(unseen_only=True)
+def _show_updates(
+    ui: TerminalUI,
+    service: LibraryService,
+    queue: JobQueue,
+) -> None:
+    updates = service.updates(unseen_only=True, queue=queue)
     if not updates:
         ui.notice(_text(ui, "updates_empty"), "info")
         return
     for item in updates:
+        download_status = (
+            item.download_job.status.value
+            if item.download_job is not None
+            else _text(ui, "unknown")
+        )
         ui.item(
             item.update.part_title,
-            f"{item.publication.title} · {item.update.discovered_at}",
+            f"{item.publication.title} · {download_status} · "
+            f"{item.update.discovered_at}",
         )
 
 
@@ -851,6 +865,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
     library_root = (root or default_output_root()).expanduser().resolve()
     index = LibraryIndex(library_root / ".komaforge" / "library.sqlite")
     state = LibraryState(library_root / ".komaforge" / "state.sqlite")
+    queue = JobQueue(library_root / ".komaforge" / "jobs.sqlite")
     service = LibraryService(index, state)
     while True:
         ui.section(_text(ui, "library_title"))
@@ -951,7 +966,8 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                 )
             elif choice == "11" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
-                path = service.read_artifact(publication_id)
+                part_id = ui.prompt(_text(ui, "part_id_optional")) or None
+                path = service.read_artifact(publication_id, part_id=part_id)
                 ui.notice(f"{_text(ui, 'library_read')} : {path.name}", "success")
             elif choice == "12" and _library_ready(ui, index, library_root):
                 publication_id = ui.prompt(_text(ui, "publication_id"))
@@ -1020,7 +1036,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                 )
             elif choice == "21" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_updates"))
-                _show_updates(ui, service)
+                _show_updates(ui, service, queue)
             elif choice == "22" and _library_ready(ui, index, library_root):
                 marked = service.mark_updates_seen()
                 ui.notice(

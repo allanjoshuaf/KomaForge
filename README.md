@@ -209,6 +209,7 @@ komaforge library publications --json
 komaforge library downloaded
 komaforge library continue
 komaforge library read IDENTIFIANT_PUBLICATION
+komaforge library read IDENTIFIANT_PUBLICATION --part-id IDENTIFIANT_PARTIE
 komaforge library open IDENTIFIANT_PUBLICATION
 komaforge library status
 komaforge library track IDENTIFIANT_PUBLICATION
@@ -264,8 +265,9 @@ vérifications et téléchargements de mise à jour. Les inspections indépendan
 présentes dans la file ne sont pas consommées par cette synchronisation. Sa sortie
 JSON sépare vérifications, téléchargements, nouveautés, échecs et travaux restants.
 Lorsqu’une vérification découvre de nouvelles parties, `library updates` les liste
-séparément du statut de lecture. `library updates-seen` les marque comme consultées
-sans les marquer comme lues et sans supprimer les téléchargements planifiés.
+séparément du statut de lecture et indique si leur téléchargement est en attente,
+terminé ou en échec. `library updates-seen` les marque comme consultées sans les
+marquer comme lues et sans supprimer les téléchargements planifiés.
 `downloaded` ne retient que les artefacts encore présents et `history` résout la
 progression persistante vers les titres de publication et de partie actuels.
 Les catégories servent à organiser une même publication suivie dans plusieurs
@@ -273,7 +275,8 @@ listes locales, par exemple `À lire`, `En cours` ou `Favoris`. Elles sont conse
 dans `state.sqlite`, survivent à la reconstruction de l’index et peuvent aussi être
 gérées depuis le menu Bibliothèque. Retirer une publication du suivi supprime ses
 classements ; supprimer une catégorie ne supprime ni la publication ni son archive.
-`read` ouvre les CBZ et les dossiers d’images dans le lecteur local de KomaForge.
+`read` ouvre les CBZ et les dossiers d’images dans le lecteur local de KomaForge ;
+`--part-id` permet d’ouvrir directement une nouveauté précise.
 Il fonctionne hors ligne sur `127.0.0.1`, avec une adresse de session aléatoire,
 sans téléverser les pages. La position est enregistrée automatiquement ; les
 flèches, Page précédente/suivante, Début, Fin, `F` et `Q` sont utilisables au

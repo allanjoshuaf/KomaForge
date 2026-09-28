@@ -64,8 +64,9 @@ class LibraryCliTests(unittest.TestCase):
             standard_output = StringIO()
             standard_error = StringIO()
 
-            def read_artifact(_service, publication_id):
+            def read_artifact(_service, publication_id, *, part_id=None):
                 self.assertEqual(publication_id, "publication-one")
+                self.assertEqual(part_id, "part-two")
                 print("reader details")
                 return artifact
 
@@ -75,6 +76,8 @@ class LibraryCliTests(unittest.TestCase):
                         [
                             "read",
                             "publication-one",
+                            "--part-id",
+                            "part-two",
                             "--root",
                             str(root),
                             "--json",
@@ -264,18 +267,23 @@ class LibraryCliTests(unittest.TestCase):
             root = Path(temp) / "outputs"
             index = Path(temp) / "library.sqlite"
             state_path = Path(temp) / "state.sqlite"
+            queue_path = Path(temp) / "jobs.sqlite"
             write_manifest(root / "One" / "pages.json")
             with redirect_stdout(StringIO()):
                 main(["rebuild", "--root", str(root), "--index", str(index)])
             publication_id = LibraryIndex(index).list_publications()[0]["id"]
             state = LibraryState(state_path)
             state.track(publication_id)
+            job = JobQueue(queue_path).enqueue(
+                JobAction.DOWNLOAD,
+                "https://example.test/one/chapter-2",
+            )
             state.record_update(
                 publication_id,
                 "part-two",
                 "Chapter 2",
                 "https://example.test/one/chapter-2",
-                download_job_id="job-two",
+                download_job_id=job.id,
             )
             common = [
                 "--root",
@@ -288,7 +296,15 @@ class LibraryCliTests(unittest.TestCase):
 
             output = StringIO()
             with redirect_stdout(output):
-                list_code = main(["updates", *common, "--json"])
+                list_code = main(
+                    [
+                        "updates",
+                        *common,
+                        "--queue",
+                        str(queue_path),
+                        "--json",
+                    ]
+                )
             updates = json.loads(output.getvalue())
 
             output = StringIO()
@@ -297,7 +313,9 @@ class LibraryCliTests(unittest.TestCase):
 
             self.assertEqual(list_code, 0)
             self.assertEqual(updates[0]["part_title"], "Chapter 2")
-            self.assertEqual(updates[0]["download_job_id"], "job-two")
+            self.assertEqual(updates[0]["download_job_id"], job.id)
+            self.assertEqual(updates[0]["download_status"], "pending")
+            self.assertEqual(updates[0]["download_attempts"], 0)
             self.assertEqual(seen_code, 0)
             self.assertEqual(json.loads(output.getvalue()), {"marked_seen": 1})
 

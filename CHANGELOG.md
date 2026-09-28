@@ -4,6 +4,9 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- la liste des nouveautés expose maintenant l’état réel de leur téléchargement,
+  et le lecteur peut ouvrir directement une partie choisie depuis la commande ou
+  le menu Bibliothèque ;
 - la bibliothèque peut maintenant synchroniser en une commande les publications
   suivies : vérifications et nouveaux téléchargements sont exécutés dans une limite
   bornée, sans consommer les inspections indépendantes déjà présentes dans la file ;

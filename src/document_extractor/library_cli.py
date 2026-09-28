@@ -95,6 +95,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Lit un CBZ ou un dossier d’images dans le lecteur local",
     )
     read.add_argument("publication_id")
+    read.add_argument(
+        "--part-id",
+        help="Ouvre directement une partie précise de la publication",
+    )
     _add_paths(read)
     _add_state_path(read)
     continue_parser = subparsers.add_parser(
@@ -174,6 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--all",
         action="store_true",
         help="Inclut les nouveautés déjà consultées",
+    )
+    updates.add_argument(
+        "--queue",
+        type=Path,
+        help="File SQLite (défaut : ROOT/.komaforge/jobs.sqlite)",
     )
     _add_paths(updates)
     _add_state_path(updates)
@@ -409,9 +418,18 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "read":
                 reader_output = redirect_stdout(sys.stderr) if args.as_json else nullcontext()
                 with reader_output:
-                    path = service.read_artifact(args.publication_id)
+                    path = service.read_artifact(
+                        args.publication_id,
+                        part_id=args.part_id,
+                    )
                 if args.as_json:
-                    print(json.dumps({"path": str(path)}, ensure_ascii=False, sort_keys=True))
+                    print(
+                        json.dumps(
+                            {"part_id": args.part_id, "path": str(path)},
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                    )
                 else:
                     print(f"Lecture terminée : {path}")
                 return 0
@@ -543,7 +561,15 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if args.command == "updates":
-                updates = service.updates(unseen_only=not args.all)
+                queue_path = (
+                    args.queue.expanduser().resolve()
+                    if args.queue
+                    else root / ".komaforge" / "jobs.sqlite"
+                )
+                updates = service.updates(
+                    unseen_only=not args.all,
+                    queue=JobQueue(queue_path),
+                )
                 payload = [
                     {
                         "publication_id": item.publication.id,
@@ -553,6 +579,16 @@ def main(argv: list[str] | None = None) -> int:
                         "source_url": item.update.source_url,
                         "discovered_at": item.update.discovered_at,
                         "download_job_id": item.update.download_job_id,
+                        "download_status": (
+                            item.download_job.status.value
+                            if item.download_job is not None
+                            else None
+                        ),
+                        "download_attempts": (
+                            item.download_job.attempts
+                            if item.download_job is not None
+                            else None
+                        ),
                         "seen": item.update.seen,
                     }
                     for item in updates
@@ -563,9 +599,10 @@ def main(argv: list[str] | None = None) -> int:
                     print("Aucune nouvelle partie détectée.")
                 else:
                     for item in payload:
+                        download_status = item["download_status"] or "unknown"
                         print(
                             f"{item['publication_title']} | {item['part_title']} | "
-                            f"{item['discovered_at']}"
+                            f"{item['discovered_at']} | {download_status}"
                         )
                 return 0
 

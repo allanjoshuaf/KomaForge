@@ -388,6 +388,29 @@ class LibraryStateTests(unittest.TestCase):
             self.assertEqual(service.mark_updates_seen(publication.id), 1)
             self.assertEqual(service.updates(unseen_only=True), ())
 
+    def test_service_resolves_update_download_status_from_queue(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, state, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            service.track(publication.id)
+            queue = JobQueue(Path(temp) / "jobs.sqlite")
+            job = queue.enqueue(
+                JobAction.DOWNLOAD,
+                "https://example.test/one/future",
+            )
+            state.record_update(
+                publication.id,
+                "future-part",
+                "Future chapter",
+                "https://example.test/one/future",
+                download_job_id=job.id,
+            )
+
+            update = service.updates(unseen_only=True, queue=queue)[0]
+
+            self.assertEqual(update.download_job, job)
+            self.assertEqual(update.download_job.status.value, "pending")
+
     def test_service_resolves_category_members_to_current_publications(self):
         with tempfile.TemporaryDirectory() as temp:
             _, index, state, service = self._service(temp)
