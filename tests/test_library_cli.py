@@ -6,6 +6,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from document_extractor.library import LibraryIndex
@@ -80,6 +81,34 @@ class LibraryCliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
             self.assertEqual(json.loads(standard_output.getvalue())["path"], str(artifact))
+            self.assertIn("reader details", standard_error.getvalue())
+
+    def test_continue_json_identifies_the_reopened_part(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            artifact = root / "Series" / "chapter-2.cbz"
+            artifact.parent.mkdir(parents=True)
+            artifact.write_bytes(b"archive")
+            reading = SimpleNamespace(
+                publication=SimpleNamespace(id="publication-series", title="Series"),
+                part=SimpleNamespace(id="part-two", title="Chapter 2"),
+                path=artifact,
+            )
+            standard_output = StringIO()
+            standard_error = StringIO()
+
+            def continue_reading(_service):
+                print("reader details")
+                return reading
+
+            with patch.object(LibraryService, "continue_reading", continue_reading):
+                with redirect_stdout(standard_output), redirect_stderr(standard_error):
+                    code = main(["continue", "--root", str(root), "--json"])
+
+            payload = json.loads(standard_output.getvalue())
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["part_id"], "part-two")
+            self.assertEqual(payload["path"], str(artifact))
             self.assertIn("reader details", standard_error.getvalue())
 
     def test_rebuild_and_list_json(self):

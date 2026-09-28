@@ -207,6 +207,7 @@ komaforge library list
 komaforge library search "titre"
 komaforge library publications --json
 komaforge library downloaded
+komaforge library continue
 komaforge library read IDENTIFIANT_PUBLICATION
 komaforge library open IDENTIFIANT_PUBLICATION
 komaforge library status
@@ -258,6 +259,10 @@ Il fonctionne hors ligne sur `127.0.0.1`, avec une adresse de session aléatoire
 sans téléverser les pages. La position est enregistrée automatiquement ; les
 flèches, Page précédente/suivante, Début, Fin, `F` et `Q` sont utilisables au
 clavier. Le bouton **Fermer** ou `Q` arrête aussi le serveur local.
+`continue` rouvre en priorité la partie inachevée consultée le plus récemment ;
+à défaut, elle choisit la première partie non lue de la publication suivie la plus
+récente. Pour une œuvre composée de plusieurs chapitres, chaque partie est associée
+à sa propre archive avant l’ouverture afin de ne pas reprendre le mauvais CBZ.
 `open` confie le premier artefact disponible à l’application locale associée à son
 format. PDF, EPUB et CBR restent ainsi confiés à leur lecteur natif tant que leur
 rendu interne n’est pas pris en charge. Le chemin doit rester dans le dossier de la

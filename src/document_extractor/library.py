@@ -330,8 +330,16 @@ def _status_rank(candidate: _PublicationCandidate) -> int:
 
 
 def _coverage_rank(candidate: _PublicationCandidate) -> int:
+    publication_coverage = candidate.publication.coverage
+    if (
+        publication_coverage is not None
+        and publication_coverage.expected is not None
+        and publication_coverage.confidence is Confidence.HIGH
+        and publication_coverage.unit == "parts"
+    ):
+        return 4
     coverages = (
-        candidate.publication.coverage,
+        publication_coverage,
         *(part.coverage for part in candidate.publication.parts),
     )
     proven = [coverage for coverage in coverages if coverage is not None]

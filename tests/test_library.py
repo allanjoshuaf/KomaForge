@@ -385,6 +385,47 @@ class LibraryIndexTests(unittest.TestCase):
             self.assertEqual(publication["title"], "Current evidence")
             self.assertEqual(publication["coverage_status"], "incomplete")
 
+    def test_catalog_scope_evidence_beats_an_old_single_part_complete_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            database = Path(temp) / "library.sqlite"
+            source_url = "https://global.manga-up.com/manga/126"
+            old = root / "Old" / "pages.json"
+            current = root / "Current" / "publication.json"
+            write_manifest(
+                old,
+                source_url,
+                "Old single chapter",
+                "https://cdn.example.test/old.webp",
+            )
+            write_manifest(
+                current,
+                source_url,
+                "Catalog-limited work",
+                "https://cdn.example.test/current.webp",
+            )
+            current_payload = json.loads(current.read_text(encoding="utf-8"))
+            current_payload["publication"].update(
+                {
+                    "status": "limited_by_source",
+                    "availability": {
+                        "catalog_part_count": 288,
+                        "accessible_part_count": 1,
+                        "access_limited": True,
+                        "source": "source catalog",
+                    },
+                }
+            )
+            current.write_text(json.dumps(current_payload), encoding="utf-8")
+            index = LibraryIndex(database)
+
+            index.rebuild(root)
+            publication = tuple(index.iter_publications())[0]
+
+            self.assertEqual(publication["title"], "Catalog-limited work")
+            self.assertEqual(publication["coverage_status"], "source_limited")
+            self.assertEqual(publication["coverage_expected"], 288)
+
     def test_ebooks_reader_and_product_urls_share_one_library_publication(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "outputs"

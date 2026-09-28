@@ -4,6 +4,12 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- la dernière lecture inachevée peut être reprise directement ; les œuvres
+  multi-parties rouvrent désormais l’archive correspondant exactement au chapitre
+  choisi au lieu de supposer que le premier fichier convient ;
+- une couverture de catalogue prouvée au niveau de l’œuvre prévaut maintenant sur
+  un ancien manifeste qui déclarait à tort un chapitre isolé comme publication
+  complète ;
 - les publications suivies peuvent maintenant être rangées dans plusieurs
   catégories locales, gérées depuis la commande ou le menu Bibliothèque et
   conservées lors de la reconstruction de l’index ;

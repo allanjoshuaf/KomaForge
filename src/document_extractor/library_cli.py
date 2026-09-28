@@ -97,6 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("publication_id")
     _add_paths(read)
     _add_state_path(read)
+    continue_parser = subparsers.add_parser(
+        "continue",
+        help="Reprend la dernière lecture locale inachevée",
+    )
+    _add_paths(continue_parser)
+    _add_state_path(continue_parser)
     status = subparsers.add_parser("status", help="Résume la santé de la bibliothèque")
     _add_paths(status)
     search = subparsers.add_parser("search", help="Recherche dans la bibliothèque locale")
@@ -245,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             "update",
             "progress",
             "read",
+            "continue",
             "categories",
             "category-create",
             "category-add",
@@ -351,6 +358,25 @@ def main(argv: list[str] | None = None) -> int:
                     print(json.dumps({"path": str(path)}, ensure_ascii=False, sort_keys=True))
                 else:
                     print(f"Lecture terminée : {path}")
+                return 0
+            if args.command == "continue":
+                reader_output = redirect_stdout(sys.stderr) if args.as_json else nullcontext()
+                with reader_output:
+                    reading = service.continue_reading()
+                payload = {
+                    "publication_id": reading.publication.id,
+                    "publication_title": reading.publication.title,
+                    "part_id": reading.part.id,
+                    "part_title": reading.part.title,
+                    "path": str(reading.path),
+                }
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(
+                        f"Lecture reprise : {reading.publication.title} — "
+                        f"{reading.part.title}"
+                    )
                 return 0
             if args.command == "track":
                 tracked = service.track(args.publication_id)

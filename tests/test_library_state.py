@@ -348,6 +348,72 @@ class LibraryStateTests(unittest.TestCase):
             self.assertEqual(state.tracked()[0].publication_id, publication.id)
             self.assertTrue(state.progress(publication.id)[0].completed)
 
+    def test_continue_reading_reopens_the_matching_part_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            manifest = root / "Series" / "publication.json"
+            write_manifest(
+                manifest,
+                "https://example.test/series",
+                "Series",
+                "https://cdn.example.test/chapter-1.webp",
+            )
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            first = payload["publication"]["chapters"][0]
+            first.update(
+                {
+                    "kind": "chapter",
+                    "title": "Chapter 1",
+                    "source_url": "https://example.test/series/chapter-1",
+                    "artifact": {"path": "chapters/chapter-1.cbz"},
+                }
+            )
+            second = json.loads(json.dumps(first))
+            second.update(
+                {
+                    "index": 2,
+                    "number": "2",
+                    "title": "Chapter 2",
+                    "source_url": "https://example.test/series/chapter-2",
+                    "artifact": {"path": "chapters/chapter-2.cbz"},
+                }
+            )
+            second["pages"][0]["url"] = "https://cdn.example.test/chapter-2.webp"
+            payload["publication"].update(
+                {
+                    "type": "work",
+                    "part_count": 2,
+                    "selected_part_count": 2,
+                    "chapters": [first, second],
+                }
+            )
+            manifest.write_text(json.dumps(payload), encoding="utf-8")
+            chapters = manifest.parent / "chapters"
+            chapters.mkdir()
+            for number in (1, 2):
+                with zipfile.ZipFile(chapters / f"chapter-{number}.cbz", "w") as archive:
+                    archive.writestr("page-0001.webp", f"page {number}".encode())
+
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            state = LibraryState(root / ".komaforge" / "state.sqlite")
+            service = LibraryService(index, state)
+            publication = index.load_publication(index.list_publications()[0]["id"])
+            second_part = sorted(publication.parts, key=lambda item: item.position)[1]
+            service.track(publication.id)
+            service.record_progress(publication.id, second_part.id, 1)
+            launched = []
+
+            reading = service.continue_reading(
+                launcher=lambda document, **options: launched.append((document, options))
+            )
+
+            self.assertEqual(reading.part.id, second_part.id)
+            self.assertEqual(reading.path, (chapters / "chapter-2.cbz").resolve())
+            self.assertEqual(launched[0][0].read_page(1), b"page 2")
+            self.assertEqual(launched[0][1]["start_position"], 1)
+            self.assertIn("Chapter 2", launched[0][1]["title"])
+
 
 if __name__ == "__main__":
     unittest.main()

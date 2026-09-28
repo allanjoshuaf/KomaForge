@@ -46,6 +46,13 @@ class ReadingHistoryView:
     progress: ReadingProgress
 
 
+@dataclass(frozen=True, slots=True)
+class ContinuedReading:
+    publication: Publication
+    part: Part
+    path: Path
+
+
 ExtractionRunner = Callable[[Namespace], int]
 ArtifactOpener = Callable[[Path], None]
 ReaderLauncher = Callable[..., None]
@@ -268,6 +275,7 @@ class LibraryService:
         self,
         publication_id: str,
         *,
+        part_id: str | None = None,
         launcher: ReaderLauncher | None = None,
     ) -> Path:
         """Read a CBZ or image folder locally and persist its page position."""
@@ -283,34 +291,45 @@ class LibraryService:
         if not paths:
             raise FileNotFoundError("publication has no available local artifact")
 
-        document = None
-        unsupported: ValueError | None = None
-        for path in paths:
-            try:
-                document = ReaderDocument.from_path(path)
-                break
-            except ValueError as exc:
-                unsupported = exc
-        if document is None:
-            if unsupported is not None:
-                raise unsupported
-            raise ValueError("publication has no artifact supported by the internal reader")
+        ordered_parts = tuple(sorted(publication.parts, key=lambda item: item.position))
+        progress = {item.part_id: item for item in self.state.progress(publication.id)}
+        if part_id is not None:
+            part = self._part(publication, part_id)
+        else:
+            unfinished = [
+                item
+                for item in reversed(self.state.progress(publication.id))
+                if not item.completed and any(part.id == item.part_id for part in ordered_parts)
+            ]
+            completed_ids = {
+                item.part_id for item in progress.values() if item.completed
+            }
+            part = (
+                self._part(publication, unfinished[0].part_id)
+                if unfinished
+                else next(
+                    (item for item in ordered_parts if item.id not in completed_ids),
+                    ordered_parts[0],
+                )
+            )
 
-        part = min(publication.parts, key=lambda item: item.position)
+        part_index = ordered_parts.index(part)
+        if len(ordered_parts) == 1:
+            path = paths[0]
+        elif len(paths) == len(ordered_parts):
+            path = paths[part_index]
+        else:
+            raise FileNotFoundError(
+                "publication artifacts cannot be matched safely to the requested part"
+            )
+        document = ReaderDocument.from_path(path)
         if part.resources and len(document.pages) != len(part.resources):
             raise ValueError(
                 "artifact page count does not match the indexed part "
                 f"({len(document.pages)} != {len(part.resources)})"
             )
         self.track(publication.id)
-        current = next(
-            (
-                item
-                for item in self.state.progress(publication.id)
-                if item.part_id == part.id
-            ),
-            None,
-        )
+        current = progress.get(part.id)
         start_position = current.resource_position if current else 1
 
         def save_progress(position: int, completed: bool) -> None:
@@ -323,11 +342,53 @@ class LibraryService:
 
         (launcher or serve_reader)(
             document,
-            title=publication.title,
+            title=(
+                publication.title
+                if len(ordered_parts) == 1
+                else f"{publication.title} — {part.title}"
+            ),
             start_position=start_position,
             progress_callback=save_progress,
         )
         return document.path
+
+    def continue_reading(
+        self,
+        *,
+        launcher: ReaderLauncher | None = None,
+    ) -> ContinuedReading:
+        """Open the most recent unfinished local reading, or the newest unread one."""
+
+        candidates: list[tuple[Publication, Part]] = []
+        seen: set[str] = set()
+        for item in self.history():
+            if item.progress.completed or item.part.id in seen:
+                continue
+            candidates.append((item.publication, item.part))
+            seen.add(item.part.id)
+        for tracked in reversed(self.state.tracked()):
+            publication = self.index.load_publication(tracked.publication_id)
+            if publication is None:
+                continue
+            completed_ids = {
+                item.part_id
+                for item in self.state.progress(publication.id)
+                if item.completed
+            }
+            for part in sorted(publication.parts, key=lambda item: item.position):
+                if part.id not in completed_ids and part.id not in seen:
+                    candidates.append((publication, part))
+                    seen.add(part.id)
+
+        if not candidates:
+            raise ValueError("no unfinished local reading is available")
+        publication, part = candidates[0]
+        path = self.read_artifact(
+            publication.id,
+            part_id=part.id,
+            launcher=launcher,
+        )
+        return ContinuedReading(publication, part, path)
 
     def history(self) -> tuple[ReadingHistoryView, ...]:
         """Return known reading progress with the most recent item first."""
