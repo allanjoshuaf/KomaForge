@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from urllib.parse import urlparse
 
 from ..detection import (
@@ -11,23 +10,20 @@ from ..detection import (
     activate_reader_gate,
     activate_reading_mode,
     detect_expected_count,
-    discover_chapters,
     discover_pages,
-    discover_selectable_parts,
     hydrate_lazy_content,
-    looks_like_chapter_url,
     wait_for_reader_readiness,
 )
 from ..models import (
     Confidence,
     Coverage,
     Part,
-    PartKind,
     Publication,
     Resource,
     ResourceKind,
 )
 from ..paths import canonical_source_identity, clean_publication_title
+from ..part_families import discover_part_candidates
 from .catalog import SourceAccess, SourceIntegration, SourceMetadata, SourceStatus
 from .contracts import (
     MatchContext,
@@ -49,19 +45,6 @@ def _page_from_session(session: SourceSession):
     if session.page is None:
         raise RuntimeError("GenericWebSource requires a prepared browser page")
     return session.page
-
-
-def _part_kind(value: str) -> PartKind:
-    normalized = value.casefold()
-    if normalized == "chapter":
-        return PartKind.CHAPTER
-    if normalized == "volume":
-        return PartKind.VOLUME
-    if normalized in {"section", "part", "book", "issue"}:
-        return PartKind.SECTION
-    if normalized == "segment":
-        return PartKind.SEGMENT
-    return PartKind.DOCUMENT
 
 
 def _resource_kind(page: dict) -> ResourceKind:
@@ -142,74 +125,23 @@ class GenericWebSource:
                 f"publication belongs to {publication.source_id!r}, not {self.id!r}"
             )
         page = _page_from_session(session)
-        scope = str(session.options.get("scope") or "auto")
-        minimum_chapters = int(session.options.get("minimum_chapters") or 3)
-        chapter_links = []
-        if scope != "document" and (
-            scope == "work" or not looks_like_chapter_url(publication.source_url)
-        ):
-            chapter_links = discover_chapters(
-                page,
-                publication.source_url,
-                minimum=2 if scope == "work" else minimum_chapters,
-            )
-        if chapter_links:
-            return tuple(
-                Part(
-                    id=_stable_id("part", canonical_source_identity(chapter.url)),
-                    kind=PartKind.CHAPTER,
-                    title=chapter.title,
-                    position=chapter.index,
-                    number=chapter.number,
-                    source_url=chapter.url,
-                    coverage=Coverage.from_counts(0, None, unit="resources"),
-                )
-                for chapter in chapter_links
-            )
-
-        selectable_parts = []
-        if scope != "document":
-            selectable_parts = discover_selectable_parts(
-                page,
-                minimum=2,
-                wait_timeout_ms=int(session.options.get("part_wait_timeout_ms") or 0),
-            )
-        if selectable_parts:
-            return tuple(
-                Part(
-                    id=_stable_id(
-                        "part",
-                        f"{publication.id}:{item.kind}:{item.number}:{item.value}",
-                    ),
-                    kind=_part_kind(item.kind),
-                    title=item.title,
-                    position=item.index,
-                    number=item.number,
-                    source_url=publication.source_url,
-                    coverage=Coverage.from_counts(0, None, unit="resources"),
-                    metadata={
-                        "selection_selector": item.selector,
-                        "selection_value": item.value,
-                    },
-                )
-                for item in selectable_parts
-            )
-
-        number_match = re.search(
-            r"(?i)(?:chapter|chapitre|ch\.?)\s*[-_/#.:]*([0-9]+(?:[.,][0-9]+)?)",
-            publication.source_url,
+        discovery = discover_part_candidates(
+            page,
+            publication,
+            session.options,
         )
-        number = number_match.group(1).replace(",", ".") if number_match else None
-        return (
+        return tuple(
             Part(
-                id=_stable_id("part", canonical_source_identity(publication.source_url)),
-                kind=PartKind.CHAPTER if number else PartKind.DOCUMENT,
-                title=publication.title if number is None else f"Chapter {number}",
-                position=1,
-                number=number,
-                source_url=publication.source_url,
+                id=_stable_id("part", candidate.identity),
+                kind=candidate.kind,
+                title=candidate.title,
+                position=candidate.position,
+                number=candidate.number,
+                source_url=candidate.source_url,
                 coverage=Coverage.from_counts(0, None, unit="resources"),
-            ),
+                metadata=candidate.metadata,
+            )
+            for candidate in discovery.candidates
         )
 
     def get_resources(

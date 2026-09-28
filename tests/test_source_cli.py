@@ -96,6 +96,13 @@ class SourceCliTests(unittest.TestCase):
                 "grouped-images",
             ],
         )
+        selectable = next(
+            family for family in families if family["id"] == "selectable-parts"
+        )
+        self.assertEqual(
+            selectable["strategies"],
+            ["linked-chapters", "select-control"],
+        )
 
     def test_sources_and_families_can_be_filtered_by_status(self):
         source_output = StringIO()
@@ -134,7 +141,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(status["sources"]["browse"], ["mangadex"])
         self.assertEqual(status["candidates"]["by_status"]["validated"], 2)
         self.assertEqual(status["families"]["total"], 4)
-        self.assertEqual(status["families"]["strategies"], 5)
+        self.assertEqual(status["families"]["strategies"], 8)
 
     def test_candidates_are_distinct_from_specialized_sources(self):
         output = StringIO()

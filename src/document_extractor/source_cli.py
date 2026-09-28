@@ -5,6 +5,7 @@ import json
 import sys
 
 from .application import resolve_source
+from .part_families import BUILTIN_PART_STRATEGIES
 from .reader_families import BUILTIN_RESOURCE_STRATEGIES
 from .sources import (
     BUILTIN_READER_FAMILIES,
@@ -231,7 +232,10 @@ def family_records() -> tuple[dict, ...]:
             "description": family.description,
             "strategies": [
                 strategy.strategy_id
-                for strategy in BUILTIN_RESOURCE_STRATEGIES
+                for strategy in (
+                    *BUILTIN_PART_STRATEGIES,
+                    *BUILTIN_RESOURCE_STRATEGIES,
+                )
                 if strategy.family_id == family.id
             ],
         }

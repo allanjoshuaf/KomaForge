@@ -51,8 +51,8 @@ class GenericWebSourceTests(unittest.TestCase):
         self.assertEqual(first.source_id, "generic-web")
         self.assertEqual(first.title, "Example Work | Reader")
 
-    @patch("document_extractor.sources.generic.discover_selectable_parts", return_value=[])
-    @patch("document_extractor.sources.generic.discover_chapters")
+    @patch("document_extractor.detection.discover_selectable_parts", return_value=[])
+    @patch("document_extractor.detection.discover_chapters")
     def test_chapter_discovery_becomes_normalized_parts(
         self,
         discover_chapters_mock,
@@ -74,8 +74,8 @@ class GenericWebSourceTests(unittest.TestCase):
     @patch("document_extractor.sources.generic.discover_pages")
     @patch("document_extractor.sources.generic.hydrate_lazy_content")
     @patch("document_extractor.sources.generic.detect_expected_count")
-    @patch("document_extractor.sources.generic.discover_selectable_parts", return_value=[])
-    @patch("document_extractor.sources.generic.discover_chapters", return_value=[])
+    @patch("document_extractor.detection.discover_selectable_parts", return_value=[])
+    @patch("document_extractor.detection.discover_chapters", return_value=[])
     def test_resource_detection_preserves_incomplete_coverage(
         self,
         _discover_chapters_mock,
@@ -112,8 +112,8 @@ class GenericWebSourceTests(unittest.TestCase):
     @patch("document_extractor.sources.generic.discover_pages")
     @patch("document_extractor.sources.generic.hydrate_lazy_content")
     @patch("document_extractor.sources.generic.detect_expected_count")
-    @patch("document_extractor.sources.generic.discover_selectable_parts", return_value=[])
-    @patch("document_extractor.sources.generic.discover_chapters", return_value=[])
+    @patch("document_extractor.detection.discover_selectable_parts", return_value=[])
+    @patch("document_extractor.detection.discover_chapters", return_value=[])
     def test_continuous_sequence_overrides_a_low_confidence_visible_counter(
         self,
         _discover_chapters_mock,
