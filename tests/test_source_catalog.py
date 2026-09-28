@@ -11,6 +11,7 @@ from document_extractor.sources import (
     SourceMetadata,
     SourceStatus,
     build_default_registry,
+    candidate_for_url,
     metadata_for,
 )
 
@@ -46,6 +47,19 @@ class SourceCatalogTests(unittest.TestCase):
                 self.assertEqual(candidate.status, SourceStatus.VALIDATED)
                 self.assertEqual(candidate.integration, SourceIntegration.GENERIC)
                 self.assertEqual(candidate.access, SourceAccess.FULL)
+
+    def test_candidate_lookup_matches_hosts_without_domain_suffix_confusion(self):
+        self.assertEqual(
+            candidate_for_url("https://sushiscan.net/vagabond-volume-1/").id,
+            "sushiscan",
+        )
+        self.assertEqual(
+            candidate_for_url("https://reader.sushiscan.net/chapter/1").id,
+            "sushiscan",
+        )
+        self.assertIsNone(
+            candidate_for_url("https://sushiscan.net.example.test/chapter/1")
+        )
 
     def test_builtin_family_ids_are_unique(self):
         identifiers = [family.id for family in BUILTIN_READER_FAMILIES]

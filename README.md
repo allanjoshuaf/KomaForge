@@ -345,10 +345,12 @@ observés avec le fallback mais qui n’ont pas encore d’adaptateur spécialis
 SushiScan et MangaReader.pro peuvent ainsi être marqués compatibles et validés tout
 en restant honnêtement décrits comme des intégrations génériques. La date du dernier
 contrôle live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.
-La commande `match` montre clairement
-si l’URL utilise une source spécialisée ou le fallback web générique. Elle ne
+La commande `match` montre clairement si l’URL utilise une source spécialisée, un
+site générique déjà validé ou le fallback inconnu. Une URL SushiScan conserve ainsi
+le statut `validated` et le nom SushiScan, avec `adapter_id=generic-web`, au lieu
+d’hériter du statut expérimental réservé aux sites inconnus. Cette identification ne
 contacte pas le site et ne masque donc jamais l’échec ultérieur d’un adaptateur
-reconnu. Un statut décrit la fiabilité de l’adaptateur, pas la complétude d’un livre :
+reconnu. Un statut décrit la fiabilité de l’intégration, pas la complétude d’un livre :
 la couverture reste consignée séparément dans le manifeste.
 Calaméo, Manga UP et eBooks.com alimentent maintenant réellement le moteur par
 leurs modèles normalisés de publication et de partie. Une source spécialisée

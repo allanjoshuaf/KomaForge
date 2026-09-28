@@ -183,6 +183,32 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(match["id"], "generic-web")
         self.assertFalse(match["specialized"])
+        self.assertFalse(match["candidate"])
+        self.assertEqual(match["adapter_id"], "generic-web")
+
+    def test_match_preserves_validated_generic_site_identity(self):
+        output = StringIO()
+
+        with redirect_stdout(output):
+            code = main(
+                [
+                    "match",
+                    "https://sushiscan.net/vagabond-volume-1/",
+                    "--json",
+                ]
+            )
+        match = json.loads(output.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(match["id"], "sushiscan")
+        self.assertEqual(match["name"], "SushiScan")
+        self.assertEqual(match["status"], "validated")
+        self.assertEqual(match["integration"], "generic")
+        self.assertEqual(match["adapter_id"], "generic-web")
+        self.assertTrue(match["candidate"])
+        self.assertFalse(match["specialized"])
+        self.assertEqual(match["confidence"], "high")
+        self.assertIn("routed through generic-web", match["reason"])
 
 
 if __name__ == "__main__":

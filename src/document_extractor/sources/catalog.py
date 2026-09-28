@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
+from urllib.parse import urlparse
 
 
 def _require_text(value: str, field_name: str) -> None:
@@ -188,6 +189,26 @@ BUILTIN_SOURCE_CANDIDATES = (
         last_verified="2026-09-28",
     ),
 )
+
+
+def candidate_for_url(url: str) -> SourceCandidate | None:
+    """Return a tested generic site without promoting it to a dedicated adapter."""
+
+    try:
+        parsed = urlparse(str(url or "").strip())
+    except ValueError:
+        return None
+    host = (parsed.hostname or "").casefold().rstrip(".")
+    if parsed.scheme not in {"http", "https"} or not host:
+        return None
+    for candidate in BUILTIN_SOURCE_CANDIDATES:
+        if any(
+            host == domain.casefold().rstrip(".")
+            or host.endswith(f".{domain.casefold().rstrip('.')}")
+            for domain in candidate.domains
+        ):
+            return candidate
+    return None
 
 
 def metadata_for(adapter: object) -> SourceMetadata:

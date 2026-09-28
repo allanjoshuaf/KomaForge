@@ -17,6 +17,7 @@ from .sources import (
     UpdateCapability,
     SourceSession,
     build_default_registry,
+    candidate_for_url,
     metadata_for,
 )
 from .terminal_ui import SUPPORTED_LANGUAGES, ensure_utf8_stream
@@ -232,6 +233,51 @@ def candidate_records() -> tuple[dict, ...]:
     )
 
 
+def describe_url(url: str) -> dict:
+    route = resolve_source(url)
+    payload = describe_source(route.adapter, specialized=route.specialized)
+    candidate = candidate_for_url(url) if not route.specialized else None
+    if candidate is not None:
+        payload.update(
+            {
+                "id": candidate.id,
+                "name": candidate.name,
+                "languages": list(candidate.languages),
+                "domains": list(candidate.domains),
+                "status": candidate.status.value,
+                "compatibility": candidate.status.value,
+                "status_reason": candidate.status_reason,
+                "integration": candidate.integration.value,
+                "access": candidate.access.value,
+                "families": list(candidate.family_ids),
+                "last_verified": candidate.last_verified,
+                "adapter_id": candidate.adapter_id,
+                "candidate": True,
+            }
+        )
+    else:
+        payload.update(
+            {
+                "adapter_id": route.adapter.id,
+                "candidate": False,
+            }
+        )
+    payload.update(
+        {
+            "confidence": (
+                "high" if candidate is not None else route.match.confidence.value
+            ),
+            "reason": (
+                f"known {candidate.status.value} site routed through "
+                f"{candidate.adapter_id}"
+                if candidate is not None
+                else route.match.reason
+            ),
+        }
+    )
+    return payload
+
+
 def main(argv: list[str] | None = None) -> int:
     ensure_utf8_stream(sys.stdout)
     ensure_utf8_stream(sys.stderr)
@@ -346,12 +392,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
             return 0
 
-        route = resolve_source(args.url)
-        payload = {
-            **describe_source(route.adapter, specialized=route.specialized),
-            "confidence": route.match.confidence.value,
-            "reason": route.match.reason,
-        }
+        payload = describe_url(args.url)
         if args.as_json:
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:

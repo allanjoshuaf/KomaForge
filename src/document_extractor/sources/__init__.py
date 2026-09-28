@@ -10,6 +10,7 @@ from .catalog import (
     SourceIntegration,
     SourceMetadata,
     SourceStatus,
+    candidate_for_url,
     metadata_for,
 )
 from .contracts import (
@@ -76,5 +77,6 @@ __all__ = [
     "UpdateCapability",
     "UpdateResult",
     "build_default_registry",
+    "candidate_for_url",
     "metadata_for",
 ]

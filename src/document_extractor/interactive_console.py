@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .application import resolve_source
 from .formats import OUTPUT_FORMATS
 from .job_executor import JobExecutor
 from .jobs import JobAction, JobQueue, JobStatus
@@ -15,7 +14,7 @@ from .paths import default_output_root
 from .source_cli import (
     catalog_query,
     candidate_records,
-    describe_source,
+    describe_url,
     family_records,
     source_records,
 )
@@ -553,16 +552,15 @@ def _match_source(ui: TerminalUI) -> None:
     url = ui.prompt(_text(ui, "url"))
     if not url:
         return
-    route = resolve_source(url)
-    source = describe_source(route.adapter, specialized=route.specialized)
+    source = describe_url(url)
     ui.section(_text(ui, "route"))
     ui.key_value(_text(ui, "route"), source["name"])
     ui.key_value(_text(ui, "compatibility"), source["compatibility"])
     ui.key_value(_text(ui, "integration"), source["integration"])
     ui.key_value(_text(ui, "access"), source["access"])
     ui.key_value(_text(ui, "domains"), ", ".join(source["domains"]))
-    ui.key_value(_text(ui, "confidence"), route.match.confidence.value)
-    ui.key_value(_text(ui, "capabilities"), route.match.reason or "—")
+    ui.key_value(_text(ui, "confidence"), source["confidence"])
+    ui.key_value(_text(ui, "capabilities"), source["reason"] or "—")
 
 
 def _show_remote_catalog(ui: TerminalUI, command: str, root: Path) -> None:
