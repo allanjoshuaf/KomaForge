@@ -4,6 +4,12 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- Calaméo, Manga UP et eBooks.com fournissent maintenant leurs publications
+  normalisées au moteur d’extraction ; l’échec d’une source reconnue reste explicite
+  et ne déclenche pas de fallback générique silencieux ;
+- eBooks conserve le titre capturé sur la fiche produit lorsque le lecteur affiche
+  seulement un titre générique, et retire le suffixe auteur propre aux métadonnées
+  de page sans modifier le titre de l’œuvre ;
 - la dernière lecture inachevée peut être reprise directement ; les œuvres
   multi-parties rouvrent désormais l’archive correspondant exactement au chapitre
   choisi au lieu de supposer que le premier fichier convient ;

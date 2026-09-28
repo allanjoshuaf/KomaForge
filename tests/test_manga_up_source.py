@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from document_extractor.engine import _chapter_tasks_from_publication
 from document_extractor.detection import normalize_manga_up_catalog
 from document_extractor.models import CoverageStatus, PartKind
 from document_extractor.sources import (
@@ -97,6 +98,19 @@ class MangaUpSourceTests(unittest.TestCase):
             [part.number for part in publication.parts],
             ["1 -1", "1 -2", "1 -3"],
         )
+
+    def test_normalized_catalog_drives_core_chapter_tasks(self):
+        publication = publication_from_catalog(
+            catalog(),
+            source_url=SOURCE_URL,
+            title="Fullmetal Alchemist",
+        )
+
+        tasks = _chapter_tasks_from_publication(publication)
+
+        self.assertEqual([task.index for task in tasks], [1, 2, 3])
+        self.assertEqual([task.number for task in tasks], ["1 -1", "1 -2", "1 -3"])
+        self.assertTrue(all(task.pages is None for task in tasks))
 
     @patch("document_extractor.sources.manga_up.discover_manga_up_catalog")
     def test_adapter_uses_the_existing_catalog_detector(self, discover_catalog_mock):

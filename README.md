@@ -324,6 +324,12 @@ si l’URL utilise une source spécialisée ou le fallback web générique. Elle
 contacte pas le site et ne masque donc jamais l’échec ultérieur d’un adaptateur
 reconnu. Un statut décrit la fiabilité de l’adaptateur, pas la complétude d’un livre :
 la couverture reste consignée séparément dans le manifeste.
+Calaméo, Manga UP et eBooks.com alimentent maintenant réellement le moteur par
+leurs modèles normalisés de publication et de partie. Une source spécialisée
+reconnue qui échoue produit donc son propre diagnostic au lieu de retomber
+silencieusement sur la détection web générique. Core conserve la navigation, la
+validation des ressources et la création des formats afin que ces garanties restent
+communes à toutes les sources.
 Les commandes séparées `komaforge-library`, `komaforge-jobs` et
 `komaforge-sources` restent installées pour les scripts existants.
 
@@ -401,9 +407,9 @@ Options utiles :
 ## Détection automatique : limites assumées
 
 L'URL reste l'entrée principale : KomaForge inspecte le lecteur réellement ouvert
-au lieu d'imposer une liste de sites qui deviendrait vite obsolète. Des profils de
-sites pourront compléter cette détection plus tard, mais ils resteront des aides
-facultatives et remplaçables, jamais une condition pour essayer une URL inconnue.
+au lieu d'imposer une liste de sites qui deviendrait vite obsolète. Les adaptateurs
+spécialisés complètent cette détection pour les sources connues ; le moteur générique
+reste disponible pour essayer une URL inconnue sans prétendre offrir son catalogue.
 
 En mode automatique, une liste d'au moins trois liens cohérents et numérotés, ou un
 menu contenant au moins deux volumes, tomes ou chapitres cohérents, est nécessaire

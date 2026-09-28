@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from document_extractor.engine import _chapter_tasks_from_publication
 from document_extractor.models import CoverageStatus, ResourceKind
 from document_extractor.sources import (
     EBooksSource,
@@ -22,6 +23,14 @@ class FakePage:
     @staticmethod
     def title() -> str:
         return "The Demon Star | eBooks.com Reader (Preview)"
+
+
+class FakeReaderPage:
+    url = READER_URL
+
+    @staticmethod
+    def title() -> str:
+        return "eBooks.com Reader"
 
 
 class EBooksSourceTests(unittest.TestCase):
@@ -51,6 +60,12 @@ class EBooksSourceTests(unittest.TestCase):
         self.assertEqual(publication.parts[0].source_url, READER_URL)
         self.assertEqual(publication.parts[0].metadata["reader_action"], "Preview")
 
+        tasks = _chapter_tasks_from_publication(publication)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].kind, "document")
+        self.assertEqual(tasks[0].source_url, READER_URL)
+        self.assertIsNone(tasks[0].pages)
+
     def test_session_url_without_product_identity_is_rejected(self):
         source = EBooksSource()
         reference = SourceReference("ebooks", READER_URL, READER_URL)
@@ -58,6 +73,22 @@ class EBooksSourceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "stable publication identity"):
             source.get_publication(reference, session)
+
+    def test_product_title_survives_navigation_to_a_generic_reader_title(self):
+        source = EBooksSource()
+        reference = SourceReference("ebooks", READER_URL, READER_URL)
+        session = SourceSession(
+            page=FakeReaderPage(),
+            options={
+                "product_url": PRODUCT_URL,
+                "title": "The Demon Star by Jesse Aragon (ebook)",
+            },
+        )
+
+        publication = source.get_publication(reference, session)
+
+        self.assertEqual(publication.title, "The Demon Star")
+        self.assertEqual(publication.source_url, PRODUCT_URL)
 
     @patch("document_extractor.sources.ebooks.discover_linked_reader")
     def test_incomplete_epub_coverage_and_secret_locator_are_preserved_safely(

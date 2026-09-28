@@ -28,7 +28,6 @@ from .detection import (
     activate_reading_mode,
     discover_chapters,
     discover_linked_reader,
-    discover_manga_up_catalog,
     discover_selectable_parts,
     detect_expected_count,
     dismiss_cookie_consent,
@@ -50,14 +49,15 @@ from .formats import (
     render_pdf_bytes_to_images,
 )
 from .legacy_bridge import normalize_legacy_manifest
+from .models import Confidence, Publication
 from .paths import (
     choose_title_output_dir,
     ensure_output_dir_is_compatible,
     publication_folder_title,
     safe_slug,
 )
-from .providers import discover_provider
 from .resources import detect_resource, is_page_resource, resource_from_url_value
+from .sources import SourceReference, SourceSession
 from .svg_tools import inspect_svg, remove_exact_watermarks
 from .terminal_ui import rt
 
@@ -107,6 +107,56 @@ class ChapterTask:
     kind: str = "chapter"
     control_selector: str | None = None
     control_value: str | None = None
+
+
+def _chapter_tasks_from_publication(
+    publication: Publication,
+) -> list[ChapterTask]:
+    """Translate normalized adapter output into Core's download work items."""
+
+    confidence_labels = {
+        Confidence.LOW: "faible",
+        Confidence.MEDIUM: "moyenne",
+        Confidence.HIGH: "élevée",
+    }
+    tasks: list[ChapterTask] = []
+    for part in sorted(publication.parts, key=lambda item: item.position):
+        pages = [
+            {
+                "page": resource.position,
+                "url": resource.locator,
+                **dict(resource.metadata),
+            }
+            for resource in sorted(part.resources, key=lambda item: item.position)
+        ]
+        coverage = part.coverage
+        expected = (
+            ExpectedCount(
+                coverage.expected,
+                coverage.evidence or f"adaptateur {publication.source_id}",
+                confidence_labels[coverage.confidence],
+            )
+            if coverage is not None and coverage.expected is not None
+            else None
+        )
+        kind = part.kind.value
+        if (
+            kind == "document"
+            and publication.metadata.get("publication_type") == "book"
+        ):
+            kind = "book"
+        tasks.append(
+            ChapterTask(
+                index=part.position,
+                number=part.number or str(part.position),
+                title=part.title,
+                source_url=part.source_url,
+                pages=pages or None,
+                expected=expected,
+                kind=kind,
+            )
+        )
+    return tasks
 
 
 def _complete_access_check(page, args) -> dict:
@@ -2235,6 +2285,7 @@ def run(args) -> int:
             if consent:
                 print(rt(language, "consent", value=consent["action"]))
 
+            source_landing_title = page.title().strip()
             reader_entry = discover_linked_reader(context, page)
             if reader_entry and reader_entry.get("url"):
                 print(
@@ -2287,26 +2338,48 @@ def run(args) -> int:
                 )
 
             reader_landing_title = page.title().strip()
-            structured_catalog = None
-            if selector is None and args.scope != "document":
-                structured_catalog = discover_manga_up_catalog(page, args.url)
-            source_limited = bool(
-                structured_catalog and structured_catalog.access_limited
+            structured_publication = None
+            if (
+                selector is None
+                and args.scope != "document"
+                and source_route.adapter.id == "manga-up"
+            ):
+                structured_publication = source_route.adapter.get_publication(
+                    SourceReference(
+                        source_id=source_route.adapter.id,
+                        value=args.url,
+                        url=args.url,
+                    ),
+                    SourceSession(
+                        browser_context=context,
+                        page=page,
+                        request=context.request,
+                        options={"scope": args.scope},
+                    ),
+                )
+            catalog_coverage = (
+                structured_publication.coverage
+                if structured_publication is not None
+                else None
             )
-            if structured_catalog:
+            source_limited = bool(
+                catalog_coverage
+                and catalog_coverage.status.value == "source_limited"
+            )
+            if structured_publication and catalog_coverage:
                 print(
                     rt(
                         language,
                         "catalog",
-                        accessible=structured_catalog.accessible_count,
-                        total=structured_catalog.total_count,
+                        accessible=catalog_coverage.available,
+                        total=catalog_coverage.expected,
                     )
                 )
                 if source_limited:
                     print(rt(language, "source_limit"))
 
             reader_gate = (
-                None if structured_catalog else activate_reader_gate(page)
+                None if structured_publication else activate_reader_gate(page)
             )
             if reader_gate:
                 print(rt(language, "reader_start", value=reader_gate["action"]))
@@ -2334,35 +2407,74 @@ def run(args) -> int:
             if readiness["waited_ms"]:
                 print(rt(language, "reader_initialization", seconds=readiness["waited_ms"] / 1000))
 
-            provider = (
-                None
-                if selector or structured_catalog
-                else discover_provider(context, page, args.url)
-            )
-            if provider:
-                allowed_hosts.update(provider.allowed_hosts)
-                print(rt(language, "site_profile", value=provider.name))
-                print(rt(language, "work", value=provider.title))
+            adapter_publication = structured_publication
+            if (
+                selector is None
+                and adapter_publication is None
+                and source_route.adapter.id in {"calameo", "ebooks"}
+            ):
+                reference_url = (
+                    page.url
+                    if source_route.adapter.id == "ebooks"
+                    else args.url
+                )
+                adapter_publication = source_route.adapter.get_publication(
+                    SourceReference(
+                        source_id=source_route.adapter.id,
+                        value=reference_url,
+                        url=reference_url,
+                    ),
+                    SourceSession(
+                        browser_context=context,
+                        page=page,
+                        request=context.request,
+                        options={
+                            "scope": args.scope,
+                            "product_url": args.url,
+                            "title": (
+                                source_landing_title
+                                if source_route.adapter.id == "ebooks"
+                                else reader_landing_title
+                            ),
+                            "document_candidates": document_candidates,
+                        },
+                    ),
+                )
+
+            provider_name = None
+            if adapter_publication and adapter_publication.source_id == "calameo":
+                provider_name = source_route.adapter.name
+                allowed_hosts.update(
+                    str(host)
+                    for host in adapter_publication.metadata.get("allowed_hosts", ())
+                )
+                print(rt(language, "site_profile", value=provider_name))
+                print(rt(language, "work", value=adapter_publication.title))
+                all_chapters = _chapter_tasks_from_publication(adapter_publication)
+                publication_title = adapter_publication.title
+                publication_type = str(
+                    adapter_publication.metadata.get("publication_type") or "document"
+                )
+            elif adapter_publication and adapter_publication.source_id == "ebooks":
+                publication_title = adapter_publication.title
+                publication_type = "document"
+                all_chapters = _chapter_tasks_from_publication(adapter_publication)
+            elif structured_publication:
+                print(rt(language, "work", value=structured_publication.title))
+                publication_title = structured_publication.title
+                publication_type = "work"
                 all_chapters = [
                     ChapterTask(
-                        index=chapter.index,
-                        number=chapter.number,
-                        title=chapter.title,
-                        source_url=chapter.source_url or args.url,
-                        pages=chapter.pages,
-                        expected=chapter.expected,
-                        kind="book" if provider.publication_type == "book" else "chapter",
+                        index=part.position,
+                        number=part.number or str(part.position),
+                        title=part.title,
+                        source_url=part.source_url,
+                        kind="chapter",
                     )
-                    for chapter in provider.chapters
+                    for part in structured_publication.parts
                 ]
-                publication_title = provider.title
-                publication_type = provider.publication_type
             else:
-                chapter_links = (
-                    list(structured_catalog.chapters)
-                    if structured_catalog
-                    else []
-                )
+                chapter_links = []
                 selectable_parts = []
                 should_discover_work = (
                     selector is None
@@ -2483,7 +2595,7 @@ def run(args) -> int:
                     all_chapters,
                     args.chapters,
                     part_kind,
-                    default_expression=("all" if structured_catalog else "1"),
+                    default_expression=("all" if structured_publication else "1"),
                     language=language,
                 )
                 if len(selected_chapters) != len(all_chapters):
@@ -2535,7 +2647,7 @@ def run(args) -> int:
             )
             manifest = {
                 "source_url": args.url,
-                "provider": provider.name if provider else None,
+                "provider": provider_name,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "output_format": args.output_format,
                 "watermark_policy": args.watermarks,
@@ -2552,13 +2664,13 @@ def run(args) -> int:
                     "chapters": [],
                 },
             }
-            if structured_catalog:
+            if structured_publication and catalog_coverage:
                 manifest["publication"]["availability"] = {
-                    "catalog_part_count": structured_catalog.total_count,
-                    "accessible_part_count": structured_catalog.accessible_count,
+                    "catalog_part_count": catalog_coverage.expected,
+                    "accessible_part_count": catalog_coverage.available,
                     "selected_accessible_part_count": len(selected_chapters),
-                    "access_limited": structured_catalog.access_limited,
-                    "source": structured_catalog.source,
+                    "access_limited": source_limited,
+                    "source": catalog_coverage.evidence,
                 }
             completed = True
             chapter_records: list[dict] = []
@@ -2579,7 +2691,7 @@ def run(args) -> int:
                         output_dir=output_dir,
                         work_dir=work_dir,
                         publication_is_work=publication_is_work,
-                        provider_name=provider.name if provider else None,
+                        provider_name=provider_name,
                         reuse_current_page=reuse_current_page,
                         document_candidates=document_candidates,
                         metadata_candidates=metadata_candidates,
@@ -2634,13 +2746,13 @@ def run(args) -> int:
             )
             normalize_legacy_manifest(manifest, source_route.adapter.id)
 
-            if source_limited and structured_catalog:
+            if source_limited and catalog_coverage:
                 print(
                     rt(
                         language,
                         "source_result",
-                        accessible=structured_catalog.accessible_count,
-                        total=structured_catalog.total_count,
+                        accessible=catalog_coverage.available,
+                        total=catalog_coverage.expected,
                     )
                 )
             if args.inspect:

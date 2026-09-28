@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from document_extractor.engine import _chapter_tasks_from_publication
 from document_extractor.models import (
     Confidence,
     CoverageStatus,
@@ -68,6 +69,20 @@ class CalameoSourceTests(unittest.TestCase):
         self.assertEqual(
             [resource.position for resource in part.resources],
             [1, 2, 3],
+        )
+
+    def test_normalized_publication_drives_core_download_tasks(self):
+        publication = publication_from_provider(provider_discovery(), SOURCE_URL)
+
+        tasks = _chapter_tasks_from_publication(publication)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].kind, "book")
+        self.assertEqual(tasks[0].expected.value, 3)
+        self.assertEqual(tasks[0].expected.confidence, "élevée")
+        self.assertEqual(
+            [page["url"] for page in tasks[0].pages],
+            [resource.locator for resource in publication.parts[0].resources],
         )
 
     @patch("document_extractor.sources.calameo.discover_provider")

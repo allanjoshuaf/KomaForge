@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from urllib.parse import parse_qs, urlparse
 
 from ..detection import (
@@ -174,6 +175,13 @@ class EBooksSource:
         title = clean_publication_title(
             str(session.options.get("title") or session.page.title() or "")
         )
+        title = re.sub(
+            r"\s+by\s+.+?\s+\(ebook\)\s*$",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        ).strip()
+        title = re.sub(r"\s+\(ebook\)\s*$", "", title, flags=re.IGNORECASE).strip()
         if not title:
             title = "eBooks publication"
         part = Part(
