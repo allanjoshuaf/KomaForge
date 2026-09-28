@@ -287,7 +287,12 @@ class LibraryStateTests(unittest.TestCase):
 
     def test_queue_updates_adds_each_tracked_publication_only_once(self):
         with tempfile.TemporaryDirectory() as temp:
-            _, index, _, service = self._service(temp)
+            root, index, _, service = self._service(temp)
+            manifest_path = root / "One" / "pages.json"
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            payload["publication"]["source_metadata"] = {"language": "en"}
+            manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+            index.rebuild(root)
             publication = index.load_publication(next(index.iter_publications())["id"])
             service.track(publication.id)
             queue = JobQueue(Path(temp) / "jobs.sqlite")
@@ -297,6 +302,7 @@ class LibraryStateTests(unittest.TestCase):
 
             self.assertEqual(len(first), 1)
             self.assertEqual(first[0].action, JobAction.UPDATE)
+            self.assertEqual(first[0].options["language"], "en")
             self.assertEqual(second, ())
             self.assertEqual(len(queue.list()), 1)
 

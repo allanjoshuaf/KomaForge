@@ -109,6 +109,45 @@ class GenericWebSourceTests(unittest.TestCase):
         )
         self.assertEqual(result.resources[0].metadata["source"], "img")
 
+    @patch("document_extractor.sources.generic.discover_pages")
+    @patch("document_extractor.sources.generic.hydrate_lazy_content")
+    @patch("document_extractor.sources.generic.detect_expected_count")
+    @patch("document_extractor.sources.generic.discover_selectable_parts", return_value=[])
+    @patch("document_extractor.sources.generic.discover_chapters", return_value=[])
+    def test_continuous_sequence_overrides_a_low_confidence_visible_counter(
+        self,
+        _discover_chapters_mock,
+        _discover_selectable_parts_mock,
+        detect_expected_count_mock,
+        _hydrate_lazy_content_mock,
+        discover_pages_mock,
+    ):
+        detect_expected_count_mock.return_value = ExpectedCount(
+            2,
+            "visible reader counter",
+            "moyenne",
+        )
+        discover_pages_mock.return_value = (
+            [
+                {
+                    "page": position + 1,
+                    "document_index": position,
+                    "url": f"https://example.test/{position + 1}.webp",
+                }
+                for position in range(3)
+            ],
+            "img.page",
+        )
+        publication = self.source.get_publication(self.reference, self.session)
+        part = self.source.get_parts(publication, self.session)[0]
+
+        result = self.source.get_resources(part, self.session)
+
+        self.assertEqual(result.coverage.status, CoverageStatus.COMPLETE)
+        self.assertEqual(result.coverage.available, 3)
+        self.assertEqual(result.coverage.expected, 3)
+        self.assertEqual(result.coverage.evidence, "continuous data-index sequence")
+
 
 if __name__ == "__main__":
     unittest.main()

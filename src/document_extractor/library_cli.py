@@ -13,7 +13,7 @@ from .library_service import LibraryService
 from .library_state import LibraryState
 from .jobs import JobQueue
 from .paths import default_output_root
-from .terminal_ui import SUPPORTED_LANGUAGES
+from .terminal_ui import SUPPORTED_LANGUAGES, ensure_utf8_stream
 
 
 def _add_paths(parser: argparse.ArgumentParser) -> None:
@@ -264,6 +264,8 @@ def _print_works(works: tuple[dict, ...], as_json: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_utf8_stream(sys.stdout)
+    ensure_utf8_stream(sys.stderr)
     args = build_parser().parse_args(argv)
     root, index_path = _resolved_paths(args)
     index = LibraryIndex(index_path)

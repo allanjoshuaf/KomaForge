@@ -9,7 +9,7 @@ from .formats import OUTPUT_FORMATS
 from .job_executor import JobExecutor
 from .jobs import Job, JobAction, JobQueue, JobStatus
 from .paths import default_output_root
-from .terminal_ui import SUPPORTED_LANGUAGES
+from .terminal_ui import SUPPORTED_LANGUAGES, ensure_utf8_stream
 
 
 def _default_queue_path() -> Path:
@@ -148,6 +148,8 @@ def _options_from_args(args: argparse.Namespace) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_utf8_stream(sys.stdout)
+    ensure_utf8_stream(sys.stderr)
     args = build_parser().parse_args(argv)
     queue = JobQueue(args.queue)
     try:

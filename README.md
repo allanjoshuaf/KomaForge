@@ -324,6 +324,9 @@ komaforge sources list --access session_dependent
 komaforge sources families
 komaforge sources candidates
 komaforge sources match "https://global.manga-up.com/manga/126"
+komaforge sources search "Fullmetal Alchemist" --source mangadex
+komaforge sources popular --source mangadex
+komaforge sources latest --source mangadex
 ```
 
 `list` sépare désormais trois informations qui ne signifient pas la même chose :
@@ -349,6 +352,16 @@ validation des ressources et la création des formats afin que ces garanties res
 communes à toutes les sources. Le chargement d’une publication et de ses parties
 passe par le même contrat applicatif pour tous les adaptateurs ; ajouter une source
 spécialisée ne nécessite plus d’ajouter son identifiant dans l’orchestrateur.
+
+MangaDex est la première source à exposer la recherche, les œuvres populaires et
+les dernières mises à jour à distance. Son adaptateur utilise l’API publique,
+conserve l’attribution MangaDex et les noms des groupes de traduction dans les
+métadonnées, puis demande le manifeste MangaDex@Home seulement pour les chapitres
+sélectionnés. Son statut reste `experimental` pendant l’élargissement des tests
+réels. Toute utilisation doit respecter la
+[politique officielle de l’API MangaDex](https://gitlab.com/mangadex-pub/mangadex-api-docs/-/blob/main/index.md),
+notamment les crédits, les demandes de retrait et l’interdiction d’en tirer un
+service publicitaire ou payant.
 Les commandes séparées `komaforge-library`, `komaforge-jobs` et
 `komaforge-sources` restent installées pour les scripts existants.
 

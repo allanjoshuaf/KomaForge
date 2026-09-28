@@ -32,7 +32,7 @@ class InteractiveConsoleTests(unittest.TestCase):
     def test_sources_are_visible_before_returning_to_extraction(self):
         stream = StringIO()
         ui = TerminalUI("fr", stream=stream)
-        answers = iter(("3", "1", "5", "1"))
+        answers = iter(("3", "1", "8", "1"))
 
         with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
             mode = interactive_hub(ui)

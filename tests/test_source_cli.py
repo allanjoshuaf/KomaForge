@@ -4,11 +4,37 @@ import json
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
+from unittest.mock import patch
 
 from document_extractor.source_cli import main
+from tests.test_mangadex_source import FakeApi
 
 
 class SourceCliTests(unittest.TestCase):
+    @patch("document_extractor.sources.mangadex._fetch_json", new_callable=FakeApi)
+    def test_search_queries_capable_sources_and_returns_stable_json(self, _api):
+        output = StringIO()
+
+        with redirect_stdout(output):
+            code = main(
+                [
+                    "search",
+                    "fullmetal",
+                    "--source",
+                    "mangadex",
+                    "--language",
+                    "en",
+                    "--json",
+                ]
+            )
+        payload = json.loads(output.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["errors"], {})
+        self.assertEqual(payload["results"][0]["source_id"], "mangadex")
+        self.assertEqual(payload["results"][0]["title"], "Fullmetal Alchemist")
+        self.assertTrue(payload["results"][0]["publication_url"].startswith("https://"))
+
     def test_list_reports_specialized_and_generic_sources(self):
         output = StringIO()
 
@@ -19,7 +45,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(
             [source["id"] for source in sources],
-            ["calameo", "manga-up", "ebooks", "generic-web"],
+            ["calameo", "manga-up", "ebooks", "mangadex", "generic-web"],
         )
         generic = sources[-1]
         self.assertFalse(generic["specialized"])
@@ -37,6 +63,8 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(sources[1]["access"], "source_limited")
         self.assertEqual(sources[2]["status"], "degraded")
         self.assertEqual(sources[2]["access"], "session_dependent")
+        self.assertTrue(sources[3]["capabilities"]["search"])
+        self.assertTrue(sources[3]["capabilities"]["browse"])
 
     def test_families_are_reported_separately_from_sources(self):
         output = StringIO()

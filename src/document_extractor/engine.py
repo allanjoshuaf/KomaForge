@@ -11,7 +11,7 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -49,7 +49,7 @@ from .formats import (
     render_pdf_bytes_to_images,
 )
 from .legacy_bridge import normalize_legacy_manifest
-from .models import Confidence, Publication
+from .models import Confidence, Part, Publication, ResourceKind
 from .paths import (
     choose_title_output_dir,
     ensure_output_dir_is_compatible,
@@ -57,7 +57,7 @@ from .paths import (
     safe_slug,
 )
 from .resources import detect_resource, is_page_resource, resource_from_url_value
-from .sources import SourceReference, SourceSession
+from .sources import SourceAdapter, SourceReference, SourceSession
 from .svg_tools import inspect_svg, remove_exact_watermarks
 from .terminal_ui import rt
 
@@ -107,6 +107,7 @@ class ChapterTask:
     kind: str = "chapter"
     control_selector: str | None = None
     control_value: str | None = None
+    adapter_part: Part | None = None
 
 
 def _chapter_tasks_from_publication(
@@ -154,6 +155,7 @@ def _chapter_tasks_from_publication(
                 pages=pages or None,
                 expected=expected,
                 kind=kind,
+                adapter_part=part,
             )
         )
     return tasks
@@ -1855,6 +1857,7 @@ def extract_chapter(
     reuse_current_page: bool,
     document_candidates: list[dict],
     metadata_candidates: list[dict],
+    source_adapter: SourceAdapter | None = None,
 ) -> tuple[object, dict, bool]:
     language = getattr(args, "language", "fr")
     print(
@@ -1897,6 +1900,60 @@ def extract_chapter(
     readiness = wait_for_reader_readiness(page)
     if readiness["waited_ms"]:
         print(rt(language, "reader_initialization", seconds=readiness["waited_ms"] / 1000))
+
+    adapter_pages_loaded = False
+    if (
+        chapter.pages is None
+        and chapter.adapter_part is not None
+        and source_adapter is not None
+    ):
+        resource_set = source_adapter.get_resources(
+            chapter.adapter_part,
+            SourceSession(
+                browser_context=context,
+                page=page,
+                request=context.request,
+                options={
+                    "scope": args.scope,
+                    "selector": selector,
+                    "expected": args.expected,
+                    "reading_mode_selector": args.reading_mode_selector,
+                    "reading_mode_value": args.reading_mode_value,
+                    "document_candidates": document_candidates,
+                },
+            ),
+        )
+        if resource_set.resources and all(
+            resource.kind in {ResourceKind.IMAGE, ResourceKind.SVG}
+            for resource in resource_set.resources
+        ):
+            confidence_labels = {
+                Confidence.LOW: "faible",
+                Confidence.MEDIUM: "moyenne",
+                Confidence.HIGH: "élevée",
+            }
+            coverage = resource_set.coverage
+            chapter = replace(
+                chapter,
+                pages=[
+                    {
+                        "page": resource.position,
+                        "url": resource.locator,
+                        **dict(resource.metadata),
+                    }
+                    for resource in resource_set.resources
+                ],
+                expected=(
+                    ExpectedCount(
+                        coverage.expected,
+                        coverage.evidence or f"adaptateur {source_adapter.id}",
+                        confidence_labels[coverage.confidence],
+                    )
+                    if coverage.expected is not None
+                    else None
+                ),
+            )
+            adapter_pages_loaded = True
 
     reading_mode = (
         {
@@ -1954,7 +2011,11 @@ def extract_chapter(
     expected_info = early_expected_info
     if chapter.pages is not None:
         pages = chapter.pages
-        selector_used = f"profil:{provider_name}"
+        selector_used = (
+            f"adaptateur:{source_adapter.id}"
+            if adapter_pages_loaded and source_adapter is not None
+            else f"profil:{provider_name}"
+        )
     else:
         if expected_info is None:
             expected_info = detect_expected_count(page)
@@ -2405,6 +2466,7 @@ def run(args) -> int:
                     rt(
                         language,
                         "catalog",
+                        source=source_route.adapter.name,
                         accessible=catalog_coverage.available,
                         total=catalog_coverage.expected,
                     )
@@ -2617,6 +2679,11 @@ def run(args) -> int:
                     "type": publication_type,
                     "title": output_title,
                     "source_title": publication_title,
+                    "source_metadata": (
+                        dict(adapter_publication.metadata)
+                        if adapter_publication is not None
+                        else {}
+                    ),
                     "part_kind": part_kind,
                     "part_count": len(all_chapters),
                     "selected_part_count": len(selected_chapters),
@@ -2656,6 +2723,11 @@ def run(args) -> int:
                         reuse_current_page=reuse_current_page,
                         document_candidates=document_candidates,
                         metadata_candidates=metadata_candidates,
+                        source_adapter=(
+                            source_route.adapter
+                            if adapter_publication is not None
+                            else None
+                        ),
                     )
                 except Exception as exc:
                     if not publication_is_work:

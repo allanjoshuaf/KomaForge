@@ -27,6 +27,29 @@ def manifest(record: dict, *, availability: dict | None = None) -> dict:
 
 
 class LegacyBridgeTests(unittest.TestCase):
+    def test_source_metadata_survives_manifest_normalization(self):
+        data = manifest(
+            {
+                "index": 1,
+                "number": "1",
+                "title": "Example",
+                "kind": "document",
+                "source_url": "https://example.test/book",
+                "status": "complete",
+                "detected": 1,
+                "expected": 1,
+            }
+        )
+        data["publication"]["source_metadata"] = {
+            "language": "en",
+            "attribution": "Example source",
+        }
+
+        publication = normalize_legacy_manifest(data, "example").publications[0]
+
+        self.assertEqual(publication.metadata["language"], "en")
+        self.assertEqual(publication.metadata["attribution"], "Example source")
+
     def test_interstitial_title_is_recovered_from_the_stable_source_url(self):
         data = manifest(
             {

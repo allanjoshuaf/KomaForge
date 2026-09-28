@@ -28,6 +28,7 @@ from .contracts import (
 from .ebooks import EBooksSource
 from .generic import GenericWebSource
 from .manga_up import MangaUpSource
+from .mangadex import MangaDexSource
 from .registry import (
     AmbiguousSourceError,
     DuplicateSourceError,
@@ -40,7 +41,9 @@ from .registry import (
 def build_default_registry() -> SourceRegistry:
     """Build the registry of specialized sources shipped with KomaForge."""
 
-    return SourceRegistry((CalameoSource(), MangaUpSource(), EBooksSource()))
+    return SourceRegistry(
+        (CalameoSource(), MangaUpSource(), EBooksSource(), MangaDexSource())
+    )
 
 __all__ = [
     "AmbiguousSourceError",
@@ -54,6 +57,7 @@ __all__ = [
     "MatchContext",
     "MatchResult",
     "MangaUpSource",
+    "MangaDexSource",
     "ReaderFamily",
     "ResourceSet",
     "SearchCapability",

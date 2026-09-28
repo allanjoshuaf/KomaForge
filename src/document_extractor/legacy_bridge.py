@@ -300,6 +300,9 @@ def normalize_legacy_manifest(
             "limited_by_source status has no matching coverage evidence"
         )
 
+    source_metadata = publication_data.get("source_metadata")
+    if not isinstance(source_metadata, dict):
+        source_metadata = {}
     publication = Publication(
         id=_stable_id("publication", canonical),
         work_id=work_id,
@@ -309,6 +312,7 @@ def normalize_legacy_manifest(
         parts=tuple(parts),
         coverage=publication_coverage,
         metadata={
+            **source_metadata,
             "legacy_type": publication_data.get("type"),
             "legacy_status": publication_status,
         },

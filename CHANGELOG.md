@@ -4,6 +4,17 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- MangaDex fournit maintenant recherche, populaires, dernières mises à jour,
+  catalogue de chapitres et pages originales MangaDex@Home, avec attribution de
+  la source et des groupes de traduction conservée dans les métadonnées ;
+- les adaptateurs peuvent désormais fournir leurs ressources à Core par le contrat
+  commun, sans branche propre à chaque nouveau site dans l’orchestrateur ;
+- les nouvelles parties détectées sont conservées dans une liste persistante,
+  distincte des non-lus, consultable et acquittable depuis la commande ou le menu ;
+- une file rangée dans une bibliothèque personnalisée conserve désormais les
+  téléchargements générés dans cette même bibliothèque ;
+- les sous-commandes JSON configurent explicitement UTF-8 sous Windows afin que
+  titres, auteurs et métadonnées multilingues restent affichables ;
 - une publication entière ou une partie précise peut être marquée lue ou non lue
   depuis la commande et le menu, sans modifier ses archives ni son suivi ;
 - le tableau de bord repose maintenant sur un instantané applicatif commun au menu

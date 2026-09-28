@@ -330,8 +330,16 @@ class LibraryService:
             identity = canonical_source_identity(publication.source_url)
             if identity in active:
                 continue
+            options = {}
+            language = publication.metadata.get("language")
+            if isinstance(language, str) and language.strip():
+                options["language"] = language
             queued.append(
-                queue.enqueue(JobAction.UPDATE, publication.source_url)
+                queue.enqueue(
+                    JobAction.UPDATE,
+                    publication.source_url,
+                    options=options,
+                )
             )
             active.add(identity)
         return tuple(queued)

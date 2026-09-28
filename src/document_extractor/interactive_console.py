@@ -13,6 +13,7 @@ from .library_service import LibraryService
 from .library_state import LibraryState
 from .paths import default_output_root
 from .source_cli import (
+    catalog_query,
     candidate_records,
     describe_source,
     family_records,
@@ -35,6 +36,10 @@ PLATFORM_MESSAGES = {
         "sources_families": "Familles de lecteurs",
         "sources_candidates": "Sites génériques validés",
         "sources_match": "Identifier la source d’une URL",
+        "sources_search": "Rechercher dans les catalogues",
+        "sources_popular": "Afficher les œuvres populaires",
+        "sources_latest": "Afficher les dernières mises à jour",
+        "remote_empty": "Aucun résultat distant.",
         "back": "Retour au menu principal",
         "submenu_invalid": "Choix invalide.",
         "url": "URL",
@@ -145,6 +150,10 @@ PLATFORM_MESSAGES = {
         "sources_families": "Reader families",
         "sources_candidates": "Validated generic sites",
         "sources_match": "Identify the source for a URL",
+        "sources_search": "Search remote catalogs",
+        "sources_popular": "Show popular works",
+        "sources_latest": "Show latest updates",
+        "remote_empty": "No remote results.",
         "back": "Back to the main menu",
         "submenu_invalid": "Invalid choice.",
         "url": "URL",
@@ -255,6 +264,10 @@ PLATFORM_MESSAGES = {
         "sources_families": "Типы читалок",
         "sources_candidates": "Проверенные универсальные сайты",
         "sources_match": "Определить источник по URL",
+        "sources_search": "Поиск в удалённых каталогах",
+        "sources_popular": "Популярные произведения",
+        "sources_latest": "Последние обновления",
+        "remote_empty": "Удалённых результатов нет.",
         "back": "Назад в главное меню",
         "submenu_invalid": "Неверный выбор.",
         "url": "URL",
@@ -365,6 +378,10 @@ PLATFORM_MESSAGES = {
         "sources_families": "阅读器类型",
         "sources_candidates": "已验证的通用网站",
         "sources_match": "识别 URL 来源",
+        "sources_search": "搜索远程目录",
+        "sources_popular": "显示热门作品",
+        "sources_latest": "显示最新更新",
+        "remote_empty": "没有远程结果。",
         "back": "返回主菜单",
         "submenu_invalid": "选择无效。",
         "url": "URL",
@@ -532,6 +549,29 @@ def _match_source(ui: TerminalUI) -> None:
     ui.key_value(_text(ui, "capabilities"), route.match.reason or "—")
 
 
+def _show_remote_catalog(ui: TerminalUI, command: str) -> None:
+    query = ui.prompt(_text(ui, "query")) if command == "search" else None
+    if command == "search" and not query:
+        return
+    payload = catalog_query(
+        command,
+        query=query,
+        source_id=None,
+        page=1,
+        language=ui.language,
+    )
+    if not payload["results"]:
+        ui.notice(_text(ui, "remote_empty"), "info")
+    for result in payload["results"]:
+        authors = ", ".join(result["authors"]) or "—"
+        ui.item(
+            result["title"],
+            f"{result['source_id']} · {authors} · {result['publication_url']}",
+        )
+    for source_id, error in payload["errors"].items():
+        ui.notice(f"{source_id} · {error}", "warning")
+
+
 def sources_menu(ui: TerminalUI) -> None:
     while True:
         ui.section(_text(ui, "sources_title"))
@@ -539,9 +579,12 @@ def sources_menu(ui: TerminalUI) -> None:
         ui.option(2, _text(ui, "sources_families"))
         ui.option(3, _text(ui, "sources_candidates"))
         ui.option(4, _text(ui, "sources_match"))
-        ui.option(5, _text(ui, "back"))
+        ui.option(5, _text(ui, "sources_search"))
+        ui.option(6, _text(ui, "sources_popular"))
+        ui.option(7, _text(ui, "sources_latest"))
+        ui.option(8, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "5":
+        if choice == "8":
             return
         try:
             if choice == "1":
@@ -552,6 +595,12 @@ def sources_menu(ui: TerminalUI) -> None:
                 _show_candidates(ui)
             elif choice == "4":
                 _match_source(ui)
+            elif choice == "5":
+                _show_remote_catalog(ui, "search")
+            elif choice == "6":
+                _show_remote_catalog(ui, "popular")
+            elif choice == "7":
+                _show_remote_catalog(ui, "latest")
             else:
                 ui.error(_text(ui, "submenu_invalid"))
         except (RuntimeError, ValueError) as exc:

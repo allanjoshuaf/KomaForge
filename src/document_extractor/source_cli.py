@@ -15,9 +15,11 @@ from .sources import (
     SourceIntegration,
     SourceStatus,
     UpdateCapability,
+    SourceSession,
     build_default_registry,
     metadata_for,
 )
+from .terminal_ui import SUPPORTED_LANGUAGES, ensure_utf8_stream
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,7 +78,89 @@ def build_parser() -> argparse.ArgumentParser:
     match = commands.add_parser("match", help="Indique la source choisie pour une URL")
     match.add_argument("url")
     match.add_argument("--json", action="store_true", dest="as_json")
+    for command, help_text in (
+        ("search", "Recherche dans les catalogues distants"),
+        ("popular", "Liste les œuvres populaires"),
+        ("latest", "Liste les dernières mises à jour"),
+    ):
+        catalog = commands.add_parser(command, help=help_text)
+        if command == "search":
+            catalog.add_argument("query")
+        catalog.add_argument("--source")
+        catalog.add_argument("--page", type=int, choices=range(1, 1001), default=1)
+        catalog.add_argument(
+            "--language",
+            choices=SUPPORTED_LANGUAGES,
+            default="en",
+        )
+        catalog.add_argument("--json", action="store_true", dest="as_json")
     return parser
+
+
+def _work_record(source_id: str, work) -> dict:
+    publication = work.publications[0] if work.publications else None
+    return {
+        "source_id": source_id,
+        "work_id": work.id,
+        "title": work.title,
+        "authors": list(work.authors),
+        "artists": list(work.artists),
+        "genres": list(work.genres),
+        "cover_url": work.cover_url,
+        "publication_url": publication.source_url if publication else None,
+    }
+
+
+def catalog_query(
+    command: str,
+    *,
+    query: str | None,
+    source_id: str | None,
+    page: int,
+    language: str,
+) -> dict:
+    registry = build_default_registry()
+    adapters = registry.all()
+    if source_id:
+        selected = registry.get(source_id)
+        if selected is None:
+            raise ValueError(f"unknown source: {source_id}")
+        adapters = (selected,)
+    session = SourceSession(options={"language": language})
+    results: list[dict] = []
+    errors: dict[str, str] = {}
+    capable = 0
+    for adapter in adapters:
+        capability = SearchCapability if command == "search" else BrowseCapability
+        if not isinstance(adapter, capability):
+            if source_id:
+                raise ValueError(
+                    f"source {adapter.id!r} does not provide {command}"
+                )
+            continue
+        capable += 1
+        try:
+            if command == "search":
+                search_page = adapter.search(query or "", {}, page, session)
+            elif command == "popular":
+                search_page = adapter.popular(page, session)
+            else:
+                search_page = adapter.latest(page, session)
+        except Exception as exc:
+            errors[adapter.id] = type(exc).__name__
+            continue
+        results.extend(
+            _work_record(adapter.id, work) for work in search_page.works
+        )
+    if capable == 0:
+        raise RuntimeError(f"no installed source provides {command}")
+    return {
+        "command": command,
+        "query": query,
+        "page": page,
+        "results": results,
+        "errors": errors,
+    }
 
 
 def describe_source(adapter, *, specialized: bool) -> dict:
@@ -149,8 +233,33 @@ def candidate_records() -> tuple[dict, ...]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_utf8_stream(sys.stdout)
+    ensure_utf8_stream(sys.stderr)
     args = build_parser().parse_args(argv)
     try:
+        if args.command in {"search", "popular", "latest"}:
+            payload = catalog_query(
+                args.command,
+                query=getattr(args, "query", None),
+                source_id=args.source,
+                page=args.page,
+                language=args.language,
+            )
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                for result in payload["results"]:
+                    authors = ", ".join(result["authors"]) or "—"
+                    print(
+                        f"{result['source_id']} | {result['title']} | "
+                        f"{authors} | {result['publication_url']}"
+                    )
+                for source_id, error in payload["errors"].items():
+                    print(f"{source_id} | erreur {error}", file=sys.stderr)
+                if not payload["results"] and not payload["errors"]:
+                    print("Aucun résultat.")
+            return 0 if payload["results"] or not payload["errors"] else 1
+
         if args.command == "list":
             sources = source_records()
             if args.status:

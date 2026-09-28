@@ -270,6 +270,26 @@ class GenericWebSource:
             )
             for position, item in enumerate(pages, start=1)
         )
+        if expected is not None and len(resources) > expected:
+            try:
+                indices = sorted(int(item["document_index"]) for item in pages)
+            except (KeyError, TypeError, ValueError):
+                indices = []
+            continuous = indices in (
+                list(range(0, len(pages))),
+                list(range(1, len(pages) + 1)),
+            )
+            if continuous and expected_info and expected_info.confidence != "élevée":
+                expected = len(resources)
+                expected_info = ExpectedCount(
+                    expected,
+                    "continuous data-index sequence",
+                    "élevée",
+                )
+            else:
+                raise RuntimeError(
+                    f"source coverage is contradictory: {len(resources)}/{expected}"
+                )
         coverage = Coverage.from_counts(
             len(resources),
             expected,
