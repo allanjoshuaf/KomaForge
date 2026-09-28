@@ -94,6 +94,8 @@ PLATFORM_MESSAGES = {
         "library_track": "Suivre une publication",
         "library_untrack": "Ne plus suivre une publication",
         "library_progress": "Enregistrer la progression",
+        "library_mark_read": "Marquer une publication comme lue",
+        "library_mark_unread": "Marquer une publication comme non lue",
         "library_missing": "Index absent ou incompatible. Reconstruisez-le d’abord.",
         "library_empty": "Aucune œuvre indexée.",
         "publication_empty": "Aucune publication indexée.",
@@ -198,6 +200,8 @@ PLATFORM_MESSAGES = {
         "library_track": "Track a publication",
         "library_untrack": "Stop tracking a publication",
         "library_progress": "Record reading progress",
+        "library_mark_read": "Mark a publication as read",
+        "library_mark_unread": "Mark a publication as unread",
         "library_missing": "The index is missing or incompatible. Rebuild it first.",
         "library_empty": "No indexed works.",
         "publication_empty": "No indexed publications.",
@@ -302,6 +306,8 @@ PLATFORM_MESSAGES = {
         "library_track": "Начать отслеживание",
         "library_untrack": "Прекратить отслеживание",
         "library_progress": "Сохранить прогресс",
+        "library_mark_read": "Отметить публикацию как прочитанную",
+        "library_mark_unread": "Отметить публикацию как непрочитанную",
         "library_missing": "Индекс отсутствует или несовместим. Сначала перестройте его.",
         "library_empty": "В индексе нет произведений.",
         "publication_empty": "В индексе нет публикаций.",
@@ -406,6 +412,8 @@ PLATFORM_MESSAGES = {
         "library_track": "跟踪出版物",
         "library_untrack": "停止跟踪出版物",
         "library_progress": "记录阅读进度",
+        "library_mark_read": "将出版物标记为已读",
+        "library_mark_unread": "将出版物标记为未读",
         "library_missing": "索引不存在或不兼容。请先重建。",
         "library_empty": "没有已索引作品。",
         "publication_empty": "没有已索引出版物。",
@@ -736,9 +744,11 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
         ui.option(16, _text(ui, "library_track"))
         ui.option(17, _text(ui, "library_untrack"))
         ui.option(18, _text(ui, "library_progress"))
-        ui.option(19, _text(ui, "back"))
+        ui.option(19, _text(ui, "library_mark_read"))
+        ui.option(20, _text(ui, "library_mark_unread"))
+        ui.option(21, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "19":
+        if choice == "21":
             return
         try:
             if choice == "1":
@@ -843,7 +853,21 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                     completed=completed,
                 )
                 ui.notice(_text(ui, "library_progress"), "success")
-            elif choice not in {str(value) for value in range(1, 20)}:
+            elif choice == "19" and _library_ready(ui, index, library_root):
+                publication_id = ui.prompt(_text(ui, "publication_id"))
+                marked = service.mark_read(publication_id)
+                ui.notice(
+                    f"{_text(ui, 'library_mark_read')} : {len(marked)}",
+                    "success",
+                )
+            elif choice == "20" and _library_ready(ui, index, library_root):
+                publication_id = ui.prompt(_text(ui, "publication_id"))
+                cleared = service.mark_unread(publication_id)
+                ui.notice(
+                    f"{_text(ui, 'library_mark_unread')} : {cleared}",
+                    "success",
+                )
+            elif choice not in {str(value) for value in range(1, 22)}:
                 ui.error(_text(ui, "submenu_invalid"))
         except (KeyError, OSError, RuntimeError, ValueError) as exc:
             ui.error(str(exc))

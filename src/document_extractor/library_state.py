@@ -394,3 +394,23 @@ class LibraryState:
             )
             for row in rows
         )
+
+    def clear_progress(self, publication_id: str, part_id: str | None = None) -> int:
+        if not self.path.is_file():
+            return 0
+        with _open_connection(self.path) as connection:
+            if part_id is None:
+                cursor = connection.execute(
+                    "DELETE FROM reading_progress WHERE publication_id = ?",
+                    (publication_id,),
+                )
+            else:
+                cursor = connection.execute(
+                    """
+                    DELETE FROM reading_progress
+                    WHERE publication_id = ? AND part_id = ?
+                    """,
+                    (publication_id, part_id),
+                )
+            connection.commit()
+        return cursor.rowcount

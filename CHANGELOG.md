@@ -4,6 +4,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- une publication entière ou une partie précise peut être marquée lue ou non lue
+  depuis la commande et le menu, sans modifier ses archives ni son suivi ;
 - le tableau de bord repose maintenant sur un instantané applicatif commun au menu
   et à `library status --json`, incluant téléchargements, suivis, catégories,
   non-lus, historique et file par statut ;

@@ -351,6 +351,32 @@ class LibraryCliTests(unittest.TestCase):
             self.assertEqual(tracked[0]["title"], "One")
             self.assertEqual(tracked[0]["unread_parts"], 0)
 
+    def test_mark_read_and_unread_commands_update_local_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            index = Path(temp) / "library.sqlite"
+            state = Path(temp) / "state.sqlite"
+            write_manifest(root / "One" / "pages.json")
+            with redirect_stdout(StringIO()):
+                main(["rebuild", "--root", str(root), "--index", str(index)])
+            publication_id = LibraryIndex(index).list_publications()[0]["id"]
+            common = ["--root", str(root), "--index", str(index), "--state", str(state)]
+
+            output = StringIO()
+            with redirect_stdout(output):
+                read_code = main(["mark-read", publication_id, *common, "--json"])
+            self.assertEqual(read_code, 0)
+            self.assertEqual(json.loads(output.getvalue()), {"marked_read": 1})
+            self.assertEqual(LibraryService(
+                LibraryIndex(index), LibraryState(state)
+            ).unread(publication_id), ())
+
+            output = StringIO()
+            with redirect_stdout(output):
+                unread_code = main(["mark-unread", publication_id, *common, "--json"])
+            self.assertEqual(unread_code, 0)
+            self.assertEqual(json.loads(output.getvalue()), {"marked_unread": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

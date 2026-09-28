@@ -220,6 +220,8 @@ komaforge library category-remove "À lire" IDENTIFIANT_PUBLICATION
 komaforge library category-delete "À lire"
 komaforge library unread
 komaforge library unread --publication-id IDENTIFIANT_PUBLICATION
+komaforge library mark-read IDENTIFIANT_PUBLICATION
+komaforge library mark-unread IDENTIFIANT_PUBLICATION
 komaforge library update
 komaforge library update --publication-id IDENTIFIANT_PUBLICATION
 komaforge library history
@@ -248,6 +250,9 @@ identifiants de publication nécessaires au suivi sont disponibles avec
 l’extraction, l’indexation et le suivi dans une seule opération ; elle ne suit rien
 si l’extraction est refusée ou incomplète. La vue `unread` liste chaque partie non
 terminée et sa dernière position enregistrée, globalement ou pour une publication.
+`mark-read` et `mark-unread` appliquent le statut à toute une publication ;
+`--part-id` permet de viser seulement une partie. Remettre en non-lu efface la
+progression concernée sans retirer la publication du suivi.
 `library update` ajoute une vérification pour chaque publication suivie sans créer de
 doublon lorsqu’une vérification identique est déjà en attente ou en cours.
 `downloaded` ne retient que les artefacts encore présents et `history` résout la

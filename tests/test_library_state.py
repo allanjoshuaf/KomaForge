@@ -226,6 +226,20 @@ class LibraryStateTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 service.unread("missing-publication")
 
+    def test_mark_read_and_unread_apply_to_the_whole_publication(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, state, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+
+            marked = service.mark_read(publication.id)
+
+            self.assertEqual(len(marked), 1)
+            self.assertTrue(marked[0].completed)
+            self.assertEqual(service.unread(publication.id), ())
+            self.assertEqual(service.mark_unread(publication.id), 1)
+            self.assertEqual(state.progress(publication.id), ())
+            self.assertEqual(len(service.unread(publication.id)), 1)
+
     def test_queue_updates_adds_each_tracked_publication_only_once(self):
         with tempfile.TemporaryDirectory() as temp:
             _, index, _, service = self._service(temp)

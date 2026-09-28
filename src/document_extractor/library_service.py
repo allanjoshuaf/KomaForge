@@ -156,6 +156,35 @@ class LibraryService:
             completed=completed,
         )
 
+    def mark_read(
+        self,
+        publication_id: str,
+        part_id: str | None = None,
+    ) -> tuple[ReadingProgress, ...]:
+        publication = self.index.load_publication(publication_id)
+        if publication is None:
+            raise KeyError(publication_id)
+        selected = (
+            (self._part(publication, part_id),)
+            if part_id is not None
+            else publication.parts
+        )
+        self.track(publication_id)
+        return tuple(
+            self.record_progress(
+                publication_id,
+                part.id,
+                len(part.resources),
+                completed=True,
+            )
+            for part in selected
+        )
+
+    def mark_unread(self, publication_id: str, part_id: str | None = None) -> int:
+        if self.index.load_publication(publication_id) is None:
+            raise KeyError(publication_id)
+        return self.state.clear_progress(publication_id, part_id)
+
     def tracked(self) -> tuple[TrackedPublicationView, ...]:
         views: list[TrackedPublicationView] = []
         for tracked in self.state.tracked():

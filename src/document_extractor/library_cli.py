@@ -186,6 +186,15 @@ def build_parser() -> argparse.ArgumentParser:
     progress.add_argument("--complete", action="store_true")
     _add_paths(progress)
     _add_state_path(progress)
+    for command, help_text in (
+        ("mark-read", "Marque une publication ou une partie comme lue"),
+        ("mark-unread", "Marque une publication ou une partie comme non lue"),
+    ):
+        marker = subparsers.add_parser(command, help=help_text)
+        marker.add_argument("publication_id")
+        marker.add_argument("--part-id")
+        _add_paths(marker)
+        _add_state_path(marker)
     return parser
 
 
@@ -258,6 +267,8 @@ def main(argv: list[str] | None = None) -> int:
             "progress",
             "read",
             "continue",
+            "mark-read",
+            "mark-unread",
             "categories",
             "category-create",
             "category-add",
@@ -383,6 +394,22 @@ def main(argv: list[str] | None = None) -> int:
                         f"Lecture reprise : {reading.publication.title} — "
                         f"{reading.part.title}"
                     )
+                return 0
+            if args.command == "mark-read":
+                progress = service.mark_read(args.publication_id, args.part_id)
+                payload = {"marked_read": len(progress)}
+                if args.as_json:
+                    print(json.dumps(payload, sort_keys=True))
+                else:
+                    print(f"{len(progress)} partie(s) marquée(s) comme lue(s).")
+                return 0
+            if args.command == "mark-unread":
+                cleared = service.mark_unread(args.publication_id, args.part_id)
+                payload = {"marked_unread": cleared}
+                if args.as_json:
+                    print(json.dumps(payload, sort_keys=True))
+                else:
+                    print(f"{cleared} progression(s) remise(s) à non lue(s).")
                 return 0
             if args.command == "track":
                 tracked = service.track(args.publication_id)
