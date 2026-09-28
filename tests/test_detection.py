@@ -35,6 +35,7 @@ from document_extractor.engine import (
     _fetch_pdf_in_ranges,
     download_pages,
     inspect_detached_page_trees,
+    merge_chapter_records,
     navigate_to_source,
     recover_detached_page_tree,
     resolve_part_selection,
@@ -65,6 +66,34 @@ class SelectorInputTests(unittest.TestCase):
 
 
 class ChapterDiscoveryTests(unittest.TestCase):
+    def test_incremental_work_records_are_merged_without_erasing_complete_parts(self):
+        chapter_one = {
+            "index": 1,
+            "number": "1",
+            "title": "Chapter 1",
+            "source_url": "https://example.test/book/chapter-1",
+            "status": "complete",
+            "artifact": {"path": "chapters/chapter-1.cbz"},
+        }
+        chapter_two = {
+            "index": 2,
+            "number": "2",
+            "title": "Chapter 2",
+            "source_url": "https://example.test/book/chapter-2",
+            "status": "complete",
+            "artifact": {"path": "chapters/chapter-2.cbz"},
+        }
+
+        merged = merge_chapter_records([chapter_one], [chapter_two])
+        preserved = merge_chapter_records(
+            merged,
+            [{**chapter_one, "status": "error", "error": "temporary"}],
+        )
+
+        self.assertEqual([item["number"] for item in merged], ["1", "2"])
+        self.assertEqual(preserved[0]["status"], "complete")
+        self.assertEqual(preserved[0]["artifact"]["path"], "chapters/chapter-1.cbz")
+
     def test_recognizes_when_the_input_is_already_a_chapter(self):
         self.assertTrue(
             looks_like_chapter_url("https://example.test/manga/demo/chapter-12.5")
@@ -1560,7 +1589,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             self.assertEqual(publication["type"], "work")
             self.assertEqual(publication["chapter_count"], 3)
             self.assertEqual(publication["selected_chapter_count"], 2)
-            self.assertEqual(publication["status"], "complete")
+            self.assertEqual(publication["status"], "incomplete")
             self.assertEqual(
                 [chapter["status"] for chapter in publication["chapters"]],
                 ["complete", "complete"],
@@ -1577,6 +1606,55 @@ class EndToEndDetectionTests(unittest.TestCase):
                         ["page-0001.png", "page-0002.png"],
                     )
             self.assertFalse((root / ".komaforge-work").exists())
+
+    def test_incremental_work_download_preserves_and_completes_the_manifest(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/work"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+
+            for selection in ("1", "2-3"):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "document_extractor",
+                        url,
+                        "--chapters",
+                        selection,
+                        "--output",
+                        temp,
+                    ],
+                    cwd=project,
+                    env=env,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    capture_output=True,
+                    timeout=120,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            root = Path(temp)
+            publication = json.loads(
+                (root / "publication.json").read_text(encoding="utf-8")
+            )["publication"]
+            self.assertEqual(publication["part_count"], 3)
+            self.assertEqual(publication["selected_part_count"], 3)
+            self.assertEqual(publication["status"], "complete")
+            self.assertEqual(
+                [chapter["number"] for chapter in publication["chapters"]],
+                ["1", "2", "3"],
+            )
+            self.assertEqual(
+                [path.name for path in sorted((root / "chapters").glob("*.cbz"))],
+                [
+                    "001-Chapitre-1.cbz",
+                    "002-Chapitre-2.cbz",
+                    "003-Chapitre-3.cbz",
+                ],
+            )
 
     def test_select_menu_creates_one_image_folder_per_selected_volume(self):
         project = Path(__file__).resolve().parents[1]

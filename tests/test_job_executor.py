@@ -152,7 +152,9 @@ class JobExecutorTests(unittest.TestCase):
 
             def runner(args):
                 if args.inspect:
-                    args.inspection_manifest = manifest([chapter(1), chapter(2)])
+                    args.inspection_manifest = manifest(
+                        [chapter(1), chapter(2), chapter(3)]
+                    )
                 else:
                     downloads.append(args)
                 return 0
@@ -167,14 +169,23 @@ class JobExecutorTests(unittest.TestCase):
             self.assertEqual(download.action, JobAction.DOWNLOAD)
             self.assertEqual(
                 download.source_url,
-                "https://example.test/book/chapter-2",
+                "https://example.test/book",
             )
+            self.assertEqual(download.options["scope"], "work")
+            self.assertEqual(download.options["chapters"], "2,3")
             self.assertEqual(download.status, JobStatus.PENDING)
             updates = state.updates(unseen_only=True)
-            self.assertEqual(len(updates), 1)
-            self.assertEqual(updates[0].publication_id, publication_id)
-            self.assertEqual(updates[0].part_title, "Chapter 2")
-            self.assertEqual(updates[0].download_job_id, download.id)
+            self.assertEqual(len(updates), 2)
+            self.assertTrue(
+                all(update.publication_id == publication_id for update in updates)
+            )
+            self.assertEqual(
+                {update.part_title for update in updates},
+                {"Chapter 2", "Chapter 3"},
+            )
+            self.assertTrue(
+                all(update.download_job_id == download.id for update in updates)
+            )
 
             repeated = JobExecutor(queue, runner).run_next()
 
@@ -189,7 +200,7 @@ class JobExecutorTests(unittest.TestCase):
                 ),
                 1,
             )
-            self.assertEqual(len(state.updates()), 1)
+            self.assertEqual(len(state.updates()), 2)
 
             downloaded = JobExecutor(queue, runner).run_next()
 
@@ -199,6 +210,8 @@ class JobExecutorTests(unittest.TestCase):
                 downloads[0].output,
                 root.resolve() / ".komaforge" / "incoming",
             )
+            self.assertEqual(downloads[0].scope, "work")
+            self.assertEqual(downloads[0].chapters, "2,3")
 
     def test_unsupported_options_fail_without_starting_runner(self):
         with tempfile.TemporaryDirectory() as temp:

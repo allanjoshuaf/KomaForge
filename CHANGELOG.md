@@ -15,6 +15,9 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   validé du site tout en exposant son routage par l’adaptateur web générique ;
 - `sources status` fournit un résumé stable des états et capacités du catalogue, et
   les dates de vérification reflètent les six inspections réelles du 28 septembre ;
+- les mises à jour d’une œuvre regroupent leurs nouvelles parties dans un seul
+  téléchargement et fusionnent le manifeste avec les archives déjà présentes, au
+  lieu de créer des publications de chapitre isolées ;
 - MangaDex fournit maintenant recherche, populaires, dernières mises à jour,
   catalogue de chapitres et pages originales MangaDex@Home, avec attribution de
   la source et des groupes de traduction conservée dans les métadonnées ;

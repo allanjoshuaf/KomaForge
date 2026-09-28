@@ -258,11 +258,20 @@ def normalize_legacy_manifest(
         )
     else:
         part_coverages = [part.coverage for part in parts if part.coverage is not None]
+        part_count = int(publication_data.get("part_count") or len(parts))
         known_totals = bool(part_coverages) and all(
             coverage.expected is not None for coverage in part_coverages
         )
         same_unit = len({coverage.unit for coverage in part_coverages}) == 1
-        if publication_status != "complete" and known_totals and same_unit:
+        if publication_status == "incomplete" and selected_count < part_count:
+            publication_coverage = Coverage.from_counts(
+                selected_count,
+                part_count,
+                unit="parts",
+                evidence="selected legacy publication parts",
+                confidence=Confidence.HIGH,
+            )
+        elif publication_status != "complete" and known_totals and same_unit:
             publication_coverage = Coverage.from_counts(
                 sum(coverage.available for coverage in part_coverages),
                 sum(coverage.expected or 0 for coverage in part_coverages),
@@ -279,7 +288,6 @@ def normalize_legacy_manifest(
                 confidence=Confidence.MEDIUM,
             )
         else:
-            part_count = int(publication_data.get("part_count") or len(parts))
             publication_coverage = Coverage.from_counts(
                 part_count,
                 part_count,

@@ -306,8 +306,11 @@ des jetons temporaires ou une session de lecteur eBooks. Une URL produit stable 
 requise afin qu’aucun secret de session ne soit écrit dans SQLite.
 `run-next` exécute les trois types de travaux avec le moteur existant. Une mise à
 jour inspecte la publication, compare ses parties au manifeste indexé et place
-uniquement les nouvelles parties dans la file de téléchargement. Une partie déjà
-en attente ou en cours n’est pas ajoutée une seconde fois. Si la publication n’est
+uniquement les nouvelles parties dans un téléchargement groupé de l’œuvre. Les
+archives déjà présentes et leurs enregistrements sont conservés ; les nouvelles
+parties enrichissent le même `publication.json` jusqu’à ce que la couverture de
+l’œuvre soit complète. Une œuvre déjà en attente ou en cours n’est pas ajoutée une
+seconde fois. Si la publication n’est
 pas encore dans la bibliothèque, la vérification échoue explicitement.
 `run-all` traite la file en série, y compris les téléchargements créés par une
 vérification de mise à jour, avec une limite explicite qui empêche une boucle sans

@@ -51,6 +51,7 @@ from .formats import (
 from .legacy_bridge import normalize_legacy_manifest
 from .models import Confidence, Part, Publication, ResourceKind
 from .paths import (
+    canonical_source_identity,
     choose_title_output_dir,
     ensure_output_dir_is_compatible,
     publication_folder_title,
@@ -108,6 +109,61 @@ class ChapterTask:
     control_selector: str | None = None
     control_value: str | None = None
     adapter_part: Part | None = None
+
+
+def _chapter_record_identity(record: dict) -> tuple[str, str]:
+    return (
+        canonical_source_identity(str(record.get("source_url") or "")),
+        str(record.get("number") or ""),
+    )
+
+
+def merge_chapter_records(
+    existing: list[dict],
+    current: list[dict],
+) -> list[dict]:
+    """Keep downloaded work parts while replacing matching refreshed records."""
+
+    merged: dict[tuple[str, str], dict] = {}
+    for record in (*existing, *current):
+        if not isinstance(record, dict):
+            raise ValueError("chapter records must be dictionaries")
+        identity = _chapter_record_identity(record)
+        if not identity[0]:
+            raise ValueError("chapter record source URL cannot be empty")
+        previous = merged.get(identity)
+        if (
+            previous is not None
+            and record.get("status") == "error"
+            and previous.get("status") == "complete"
+        ):
+            continue
+        merged[identity] = record
+
+    def order(record: dict) -> tuple[int, str, str]:
+        try:
+            position = int(record.get("index"))
+        except (TypeError, ValueError):
+            position = 2**31 - 1
+        identity = _chapter_record_identity(record)
+        return position, identity[1], identity[0]
+
+    return sorted(merged.values(), key=order)
+
+
+def _existing_chapter_records(manifest_path: Path, source_url: str) -> list[dict]:
+    if not manifest_path.is_file():
+        return []
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if canonical_source_identity(str(payload.get("source_url") or "")) != (
+        canonical_source_identity(source_url)
+    ):
+        raise RuntimeError("existing publication manifest belongs to another source")
+    publication = payload.get("publication")
+    records = publication.get("chapters") if isinstance(publication, dict) else None
+    if not isinstance(records, list):
+        raise RuntimeError("existing publication manifest has no chapter records")
+    return [dict(record) for record in records]
 
 
 def _chapter_tasks_from_publication(
@@ -2668,6 +2724,11 @@ def run(args) -> int:
             manifest_path = output_dir / (
                 "publication.json" if publication_is_work else "pages.json"
             )
+            existing_chapter_records = (
+                _existing_chapter_records(manifest_path, args.url)
+                if publication_is_work and not args.inspect
+                else []
+            )
             manifest = {
                 "source_url": args.url,
                 "provider": provider_name,
@@ -2758,23 +2819,65 @@ def run(args) -> int:
                         manifest["output_format"] = record_output_format
                     elif current_output_format != record_output_format:
                         manifest["output_format"] = "mixed"
-                manifest["publication"]["chapters"] = chapter_records
+                stored_chapters = merge_chapter_records(
+                    existing_chapter_records,
+                    chapter_records,
+                )
+                manifest["publication"]["chapters"] = stored_chapters
+                manifest["publication"]["selected_part_count"] = len(stored_chapters)
+                manifest["publication"]["selected_chapter_count"] = len(stored_chapters)
+                if "availability" in manifest["publication"]:
+                    manifest["publication"]["availability"][
+                        "selected_accessible_part_count"
+                    ] = len(stored_chapters)
                 if publication_is_work and not args.inspect:
+                    work_complete = (
+                        completed
+                        and len(stored_chapters) >= len(all_chapters)
+                        and all(
+                            item.get("status") == "complete"
+                            for item in stored_chapters
+                        )
+                    )
                     manifest["publication"]["status"] = (
                         "limited_by_source"
-                        if completed and source_limited
+                        if work_complete and source_limited
                         else "complete"
-                        if completed
+                        if work_complete
                         else "incomplete"
                     )
                     write_json(manifest_path, manifest)
 
-            manifest["publication"]["chapters"] = chapter_records
+            stored_chapters = (
+                merge_chapter_records(existing_chapter_records, chapter_records)
+                if publication_is_work and not args.inspect
+                else chapter_records
+            )
+            manifest["publication"]["chapters"] = stored_chapters
+            manifest["publication"]["selected_part_count"] = len(stored_chapters)
+            manifest["publication"]["selected_chapter_count"] = len(stored_chapters)
+            if "availability" in manifest["publication"]:
+                manifest["publication"]["availability"][
+                    "selected_accessible_part_count"
+                ] = len(stored_chapters)
+            work_complete = (
+                completed
+                and (
+                    not publication_is_work
+                    or (
+                        len(stored_chapters) >= len(all_chapters)
+                        and all(
+                            item.get("status") == "complete"
+                            for item in stored_chapters
+                        )
+                    )
+                )
+            )
             manifest["publication"]["status"] = (
                 "limited_by_source"
-                if completed and source_limited
+                if work_complete and source_limited
                 else "complete"
-                if completed
+                if work_complete
                 else "incomplete"
             )
             normalize_legacy_manifest(manifest, source_route.adapter.id)

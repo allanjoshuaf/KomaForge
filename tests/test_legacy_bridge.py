@@ -27,6 +27,38 @@ def manifest(record: dict, *, availability: dict | None = None) -> dict:
 
 
 class LegacyBridgeTests(unittest.TestCase):
+    def test_partial_work_coverage_uses_selected_parts_not_page_totals(self):
+        data = manifest(
+            {
+                "index": 1,
+                "number": "1",
+                "title": "Chapter 1",
+                "kind": "chapter",
+                "source_url": "https://example.test/book/chapter-1",
+                "status": "complete",
+                "detected": 12,
+                "expected": 12,
+            }
+        )
+        data["publication"].update(
+            {
+                "type": "work",
+                "part_count": 3,
+                "selected_part_count": 1,
+                "status": "incomplete",
+            }
+        )
+
+        coverage = normalize_legacy_manifest(
+            data,
+            "example",
+        ).publications[0].coverage
+
+        self.assertEqual(coverage.status, CoverageStatus.INCOMPLETE)
+        self.assertEqual(coverage.available, 1)
+        self.assertEqual(coverage.expected, 3)
+        self.assertEqual(coverage.unit, "parts")
+
     def test_source_metadata_survives_manifest_normalization(self):
         data = manifest(
             {

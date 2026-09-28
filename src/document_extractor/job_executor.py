@@ -143,25 +143,30 @@ class JobExecutor:
             }
         }
         base_options.setdefault("output_format", "original")
-        seen_urls: set[str] = set()
         active_downloads = {
             canonical_source_identity(queued.source_url)
             for queued in self.queue.list()
             if queued.action is JobAction.DOWNLOAD
             and queued.status in {JobStatus.PENDING, JobStatus.RUNNING}
         }
-        for part in result.parts:
-            identity = canonical_source_identity(part.source_url)
-            if identity in seen_urls or identity in active_downloads:
-                continue
-            seen_urls.add(identity)
-            options = {**base_options, "scope": "document", "chapters": "all"}
-            download = self.queue.enqueue(
-                JobAction.DOWNLOAD,
-                part.source_url,
-                options=options,
-            )
-            if known.id in tracked_ids:
+        if not result.parts:
+            return
+        publication_identity = canonical_source_identity(known.source_url)
+        if publication_identity in active_downloads:
+            return
+        positions = sorted({part.position for part in result.parts})
+        options = {
+            **base_options,
+            "scope": "work",
+            "chapters": ",".join(str(position) for position in positions),
+        }
+        download = self.queue.enqueue(
+            JobAction.DOWNLOAD,
+            known.source_url,
+            options=options,
+        )
+        if known.id in tracked_ids:
+            for part in result.parts:
                 state.record_update(
                     known.id,
                     part.id,
@@ -169,7 +174,6 @@ class JobExecutor:
                     download.source_url,
                     download_job_id=download.id,
                 )
-            active_downloads.add(identity)
 
     def run_next(
         self,
