@@ -177,6 +177,10 @@ class JobExecutor:
             return None
         try:
             args = parse_args(_arguments_for(job))
+            if "output" not in dict(job.options or {}):
+                args.output_root = self.library_root
+                args.output = self.library_root / ".komaforge" / "incoming"
+                args.output_auto_named = True
             exit_code = self.runner(args)
             if exit_code == 0 and job.action is JobAction.UPDATE:
                 self._enqueue_updates(job, args)

@@ -987,14 +987,14 @@ def jobs_menu(
             elif choice == "4":
                 _enqueue_job(ui, queue, JobAction.UPDATE)
             elif choice == "5":
-                job = JobExecutor(queue).run_next()
+                job = JobExecutor(queue, library_root=output_root).run_next()
                 if job is None:
                     ui.notice(_text(ui, "nothing_run"), "info")
                 else:
                     tone = "success" if job.status is JobStatus.COMPLETED else "warning"
                     ui.notice(f"{job.id} · {job.status.value}", tone)
             elif choice == "6":
-                jobs = JobExecutor(queue).run_all()
+                jobs = JobExecutor(queue, library_root=output_root).run_all()
                 failures = sum(job.status is JobStatus.FAILED for job in jobs)
                 ui.notice(
                     f"{_text(ui, 'jobs_run_all')} : {len(jobs)}",

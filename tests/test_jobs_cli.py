@@ -6,11 +6,36 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from document_extractor.jobs_cli import main
 
 
 class JobsCliTests(unittest.TestCase):
+    def test_run_next_forwards_an_explicit_library_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            queue = Path(temp) / "jobs.sqlite"
+            root = Path(temp) / "library"
+            with patch("document_extractor.jobs_cli.JobExecutor") as executor:
+                executor.return_value.run_next.return_value = None
+                with redirect_stdout(StringIO()):
+                    code = main(
+                        [
+                            "run-next",
+                            "--queue",
+                            str(queue),
+                            "--root",
+                            str(root),
+                            "--json",
+                        ]
+                    )
+
+            self.assertEqual(code, 2)
+            self.assertEqual(
+                executor.call_args.kwargs["library_root"],
+                root,
+            )
+
     def test_add_list_and_cancel_json(self):
         with tempfile.TemporaryDirectory() as temp:
             queue = Path(temp) / "jobs.sqlite"

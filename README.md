@@ -224,6 +224,8 @@ komaforge library mark-read IDENTIFIANT_PUBLICATION
 komaforge library mark-unread IDENTIFIANT_PUBLICATION
 komaforge library update
 komaforge library update --publication-id IDENTIFIANT_PUBLICATION
+komaforge library updates
+komaforge library updates-seen
 komaforge library history
 komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
 ```
@@ -255,6 +257,9 @@ terminée et sa dernière position enregistrée, globalement ou pour une publica
 progression concernée sans retirer la publication du suivi.
 `library update` ajoute une vérification pour chaque publication suivie sans créer de
 doublon lorsqu’une vérification identique est déjà en attente ou en cours.
+Lorsqu’une vérification découvre de nouvelles parties, `library updates` les liste
+séparément du statut de lecture. `library updates-seen` les marque comme consultées
+sans les marquer comme lues et sans supprimer les téléchargements planifiés.
 `downloaded` ne retient que les artefacts encore présents et `history` résout la
 progression persistante vers les titres de publication et de partie actuels.
 Les catégories servent à organiser une même publication suivie dans plusieurs
@@ -301,6 +306,10 @@ pas encore dans la bibliothèque, la vérification échoue explicitement.
 `run-all` traite la file en série, y compris les téléchargements créés par une
 vérification de mise à jour, avec une limite explicite qui empêche une boucle sans
 fin de monopoliser l’application.
+Une file placée dans `BIBLIOTHÈQUE/.komaforge/jobs.sqlite` dirige automatiquement
+ses sorties vers cette bibliothèque. Pour une file stockée ailleurs, utilisez
+`komaforge jobs run-all --root BIBLIOTHÈQUE`; un `--output` défini sur un travail
+reste toujours prioritaire.
 
 Les adaptateurs disponibles et leurs capacités peuvent être interrogés sans ouvrir
 de navigateur :

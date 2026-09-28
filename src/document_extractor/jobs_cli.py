@@ -81,11 +81,21 @@ def build_parser() -> argparse.ArgumentParser:
         "run-next",
         help="Exécute le prochain travail inspect, download ou update",
     )
+    run_next.add_argument(
+        "--root",
+        type=Path,
+        help="Bibliothèque de destination (déduite de la file par défaut)",
+    )
     run_next.add_argument("--json", action="store_true", dest="as_json")
     _add_queue_path(run_next)
     run_all = commands.add_parser(
         "run-all",
         help="Exécute les travaux en attente jusqu’à épuisement ou limite",
+    )
+    run_all.add_argument(
+        "--root",
+        type=Path,
+        help="Bibliothèque de destination (déduite de la file par défaut)",
     )
     run_all.add_argument("--limit", type=int, choices=range(1, 1001), default=100)
     run_all.add_argument("--json", action="store_true", dest="as_json")
@@ -165,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{count} travail/travaux replacé(s) en attente")
             return 0
         if args.command == "run-next":
-            job = JobExecutor(queue).run_next()
+            job = JobExecutor(queue, library_root=args.root).run_next()
             if job is None:
                 if args.as_json:
                     print(json.dumps({"executed": False}, sort_keys=True))
@@ -175,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
             _print_job(job, args.as_json)
             return 0 if job.status is JobStatus.COMPLETED else 1
         if args.command == "run-all":
-            jobs = JobExecutor(queue).run_all(limit=args.limit)
+            jobs = JobExecutor(queue, library_root=args.root).run_all(limit=args.limit)
             payload = {
                 "executed": len(jobs),
                 "completed": sum(job.status is JobStatus.COMPLETED for job in jobs),

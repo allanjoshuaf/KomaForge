@@ -44,6 +44,44 @@ class JobExecutorTests(unittest.TestCase):
             self.assertEqual(result.status, JobStatus.FAILED)
             self.assertEqual(result.last_error, "execution returned exit code 2")
 
+    def test_queue_under_custom_library_routes_auto_named_output_there(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "custom-library"
+            queue = JobQueue(root / ".komaforge" / "jobs.sqlite")
+            queue.enqueue(JobAction.DOWNLOAD, "https://example.test/book")
+            received = []
+
+            result = JobExecutor(
+                queue,
+                lambda args: received.append(args) or 0,
+            ).run_next()
+
+            self.assertEqual(result.status, JobStatus.COMPLETED)
+            self.assertEqual(received[0].output_root, root.resolve())
+            self.assertEqual(
+                received[0].output,
+                root.resolve() / ".komaforge" / "incoming",
+            )
+            self.assertTrue(received[0].output_auto_named)
+
+    def test_explicit_job_output_is_not_replaced_by_library_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "custom-library"
+            explicit = Path(temp) / "chosen-output"
+            queue = JobQueue(root / ".komaforge" / "jobs.sqlite")
+            queue.enqueue(
+                JobAction.DOWNLOAD,
+                "https://example.test/book",
+                options={"output": str(explicit)},
+            )
+            received = []
+
+            JobExecutor(queue, lambda args: received.append(args) or 0).run_next()
+
+            self.assertEqual(received[0].output, explicit.resolve())
+            self.assertEqual(received[0].output_root, explicit.resolve())
+            self.assertFalse(received[0].output_auto_named)
+
     def test_runner_exception_does_not_persist_its_sensitive_message(self):
         with tempfile.TemporaryDirectory() as temp:
             queue = JobQueue(Path(temp) / "jobs.sqlite")
@@ -110,9 +148,13 @@ class JobExecutorTests(unittest.TestCase):
                 options={"language": "fr"},
             )
 
+            downloads = []
+
             def runner(args):
-                self.assertTrue(args.inspect)
-                args.inspection_manifest = manifest([chapter(1), chapter(2)])
+                if args.inspect:
+                    args.inspection_manifest = manifest([chapter(1), chapter(2)])
+                else:
+                    downloads.append(args)
                 return 0
 
             result = JobExecutor(queue, runner).run_next()
@@ -148,6 +190,15 @@ class JobExecutorTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(len(state.updates()), 1)
+
+            downloaded = JobExecutor(queue, runner).run_next()
+
+            self.assertEqual(downloaded.status, JobStatus.COMPLETED)
+            self.assertEqual(downloads[0].output_root, root.resolve())
+            self.assertEqual(
+                downloads[0].output,
+                root.resolve() / ".komaforge" / "incoming",
+            )
 
     def test_unsupported_options_fail_without_starting_runner(self):
         with tempfile.TemporaryDirectory() as temp:
