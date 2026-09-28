@@ -4,6 +4,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- le chargement progressif ne confond plus un nombre d’images stable avec la fin
+  du lecteur tant que la position de défilement continue d’avancer ;
 - les lecteurs Blob, manifestes de chapitre, paginés et verticaux sont maintenant
   routés par des stratégies de famille isolées et testables, hors de l’orchestrateur
   de détection monolithique ;

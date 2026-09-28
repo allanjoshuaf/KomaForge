@@ -1303,6 +1303,8 @@ def hydrate_lazy_content(
     stable_expected = 0
     stable_progress = 0
     previous = None
+    previous_content = None
+    reached_bottom = False
     steps = 0
     for steps in range(1, max_steps + 1):
         state = page.evaluate(
@@ -1330,7 +1332,16 @@ def hydrate_lazy_content(
             """
         )
         at_bottom = state["y"] + state["viewport"] >= state["height"] - 4
-        signature = (state["resolvedCount"], state["uniqueCount"], state["height"])
+        content_signature = (
+            state["resolvedCount"],
+            state["uniqueCount"],
+            state["height"],
+        )
+        signature = (
+            *content_signature,
+            state["y"],
+        )
+        reached_bottom = reached_bottom or at_bottom
         if expected and state["resolvedCount"] >= expected:
             stable_expected += 1
         else:
@@ -1341,15 +1352,20 @@ def hydrate_lazy_content(
             stable_bottom += 1
         else:
             stable_bottom = 0
-        if signature == previous:
+        if content_signature == previous_content:
             stable_progress += 1
         else:
             stable_progress = 0
         if stable_bottom >= 3 and steps >= minimum_steps:
             break
-        if stable_progress >= minimum_steps and steps >= minimum_steps:
+        if (
+            reached_bottom
+            and stable_progress >= minimum_steps
+            and steps >= minimum_steps
+        ):
             break
         previous = signature
+        previous_content = content_signature
         if state["unresolved"]:
             target = state["unresolved"][(steps - 1) % len(state["unresolved"])]
             page.locator("img").nth(target).scroll_into_view_if_needed(timeout=5_000)

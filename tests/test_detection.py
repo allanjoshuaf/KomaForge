@@ -19,6 +19,7 @@ from unittest.mock import patch
 from document_extractor.detection import (
     _auto_group,
     discover_linked_reader,
+    hydrate_lazy_content,
     is_ebooks_product_url,
     looks_like_chapter_url,
     normalize_chapter_candidates,
@@ -63,6 +64,47 @@ class SelectorInputTests(unittest.TestCase):
             normalize_selector_input('<img class="ts-main-image lazy" ...>'),
             "img.ts-main-image.lazy",
         )
+
+
+class HydrationTests(unittest.TestCase):
+    def test_hydration_does_not_stop_while_scroll_position_advances(self):
+        class ScrollingPage:
+            def __init__(self):
+                self.y = 0
+                self.maximum_y = 0
+                self.scrolls = 0
+
+            def evaluate(self, script):
+                if "window.scrollBy" in script:
+                    self.scrolls += 1
+                    self.y = min(9_000, self.y + 2_400)
+                    self.maximum_y = max(self.maximum_y, self.y)
+                    return None
+                if "window.scrollTo" in script:
+                    self.y = 0
+                    return None
+                return {
+                    "imageCount": 1,
+                    "resolvedCount": 1,
+                    "uniqueCount": 1,
+                    "unresolved": [],
+                    "height": 10_000,
+                    "y": self.y,
+                    "viewport": 1_000,
+                }
+
+        page = ScrollingPage()
+
+        result = hydrate_lazy_content(
+            page,
+            expected=None,
+            max_steps=12,
+            minimum_steps=2,
+        )
+
+        self.assertGreaterEqual(page.maximum_y, 9_000)
+        self.assertGreaterEqual(page.scrolls, 4)
+        self.assertGreater(result["steps"], 3)
 
 
 class ChapterDiscoveryTests(unittest.TestCase):
