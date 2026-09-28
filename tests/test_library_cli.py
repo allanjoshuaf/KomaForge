@@ -306,6 +306,23 @@ class LibraryCliTests(unittest.TestCase):
                 main(["updates", *common, "--json"])
             self.assertEqual(json.loads(output.getvalue()), [])
 
+    def test_sync_reports_an_empty_tracked_library_as_stable_json(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            root.mkdir()
+            output = StringIO()
+
+            with redirect_stdout(output):
+                code = main(["sync", "--root", str(root), "--json"])
+
+            payload = json.loads(output.getvalue())
+            self.assertEqual(code, 0)
+            self.assertEqual(payload["queued_checks"], 0)
+            self.assertEqual(payload["executed"], 0)
+            self.assertEqual(payload["new_parts"], 0)
+            self.assertEqual(payload["failed"], 0)
+            self.assertEqual(payload["pending"], 0)
+
     def test_category_commands_group_tracked_publications(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "outputs"

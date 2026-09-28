@@ -98,6 +98,7 @@ PLATFORM_MESSAGES = {
         "category_name": "Nom de la catégorie",
         "category_empty": "Aucune catégorie.",
         "library_update": "Planifier les mises à jour des publications suivies",
+        "library_sync": "Synchroniser maintenant les publications suivies",
         "library_add": "Ajouter une URL et suivre la publication",
         "library_track": "Suivre une publication",
         "library_untrack": "Ne plus suivre une publication",
@@ -212,6 +213,7 @@ PLATFORM_MESSAGES = {
         "category_name": "Category name",
         "category_empty": "No categories.",
         "library_update": "Queue updates for tracked publications",
+        "library_sync": "Synchronize tracked publications now",
         "library_add": "Add a URL and track the publication",
         "library_track": "Track a publication",
         "library_untrack": "Stop tracking a publication",
@@ -326,6 +328,7 @@ PLATFORM_MESSAGES = {
         "category_name": "Название категории",
         "category_empty": "Категорий нет.",
         "library_update": "Проверить обновления отслеживаемых публикаций",
+        "library_sync": "Синхронизировать отслеживаемые публикации сейчас",
         "library_add": "Добавить URL и отслеживать публикацию",
         "library_track": "Начать отслеживание",
         "library_untrack": "Прекратить отслеживание",
@@ -440,6 +443,7 @@ PLATFORM_MESSAGES = {
         "category_name": "分类名称",
         "category_empty": "暂无分类。",
         "library_update": "为已跟踪出版物安排更新",
+        "library_sync": "立即同步已跟踪的出版物",
         "library_add": "添加 URL 并跟踪出版物",
         "library_track": "跟踪出版物",
         "library_untrack": "停止跟踪出版物",
@@ -817,7 +821,7 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
         ui.option(11, _text(ui, "library_read"))
         ui.option(12, _text(ui, "library_open"))
         ui.option(13, _text(ui, "library_add"))
-        ui.option(14, _text(ui, "library_update"))
+        ui.option(14, _text(ui, "library_sync"))
         ui.option(15, _text(ui, "library_rebuild"))
         ui.option(16, _text(ui, "library_track"))
         ui.option(17, _text(ui, "library_untrack"))
@@ -863,12 +867,30 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                 ui.section(_text(ui, "library_history"))
                 _show_history(ui, service)
             elif choice == "14" and _library_ready(ui, index, library_root):
-                queued = service.queue_updates(
-                    JobQueue(library_root / ".komaforge" / "jobs.sqlite")
+                result = service.sync_updates(
+                    JobQueue(library_root / ".komaforge" / "jobs.sqlite"),
+                    library_root,
+                )
+                completed = sum(
+                    job.status is JobStatus.COMPLETED
+                    for job in result.executed_jobs
+                )
+                failed = sum(
+                    job.status is JobStatus.FAILED
+                    for job in result.executed_jobs
                 )
                 ui.notice(
-                    f"{_text(ui, 'library_update')} : {len(queued)}",
-                    "success",
+                    f"{_text(ui, 'library_sync')} : "
+                    f"{result.new_parts} {_text(ui, 'updates')} · "
+                    f"{completed} {_text(ui, 'completed')} · "
+                    f"{failed} {_text(ui, 'failed')}",
+                    (
+                        "error"
+                        if failed
+                        else "warning"
+                        if result.pending_jobs
+                        else "success"
+                    ),
                 )
             elif choice == "9" and _library_ready(ui, index, library_root):
                 category_menu(ui, state, service)

@@ -17,6 +17,7 @@ from .application import resolve_source
 
 
 QUEUE_SCHEMA_VERSION = 1
+MAX_RUN_LIMIT = 1000
 
 
 class JobAction(str, Enum):
@@ -31,6 +32,18 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+def validate_run_limit(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError("limit must be an integer from 1 to 1000")
+    try:
+        limit = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("limit must be an integer from 1 to 1000") from exc
+    if not 1 <= limit <= MAX_RUN_LIMIT:
+        raise ValueError("limit must be an integer from 1 to 1000")
+    return limit
 
 
 @dataclass(frozen=True, slots=True)

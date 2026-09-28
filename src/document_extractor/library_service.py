@@ -18,7 +18,7 @@ from .library_state import (
     TrackedPublication,
     UpdateEvent,
 )
-from .jobs import Job, JobAction, JobQueue, JobStatus
+from .jobs import Job, JobAction, JobQueue, JobStatus, validate_run_limit
 from .models import Part, Publication
 from .paths import canonical_source_identity
 
@@ -63,6 +63,14 @@ class ContinuedReading:
     publication: Publication
     part: Part
     path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class LibrarySyncResult:
+    queued_checks: tuple[Job, ...]
+    executed_jobs: tuple[Job, ...]
+    new_parts: int
+    pending_jobs: int
 
 
 ExtractionRunner = Callable[[Namespace], int]
@@ -343,6 +351,49 @@ class LibraryService:
             )
             active.add(identity)
         return tuple(queued)
+
+    def sync_updates(
+        self,
+        queue: JobQueue,
+        output_root: Path,
+        publication_id: str | None = None,
+        *,
+        limit: int = 100,
+        runner: ExtractionRunner | None = None,
+    ) -> LibrarySyncResult:
+        """Queue tracked checks and run only update/download jobs."""
+
+        from .job_executor import JobExecutor
+
+        limit = validate_run_limit(limit)
+        before = {
+            (item.publication_id, item.part_id)
+            for item in self.state.updates()
+        }
+        queued = self.queue_updates(queue, publication_id)
+        executed = JobExecutor(
+            queue,
+            runner,
+            library_root=output_root,
+        ).run_all(
+            limit=limit,
+            actions=(JobAction.UPDATE, JobAction.DOWNLOAD),
+        )
+        after = {
+            (item.publication_id, item.part_id)
+            for item in self.state.updates()
+        }
+        pending = sum(
+            job.status is JobStatus.PENDING
+            and job.action in {JobAction.UPDATE, JobAction.DOWNLOAD}
+            for job in queue.list()
+        )
+        return LibrarySyncResult(
+            queued_checks=queued,
+            executed_jobs=executed,
+            new_parts=len(after - before),
+            pending_jobs=pending,
+        )
 
     def open_artifact(
         self,

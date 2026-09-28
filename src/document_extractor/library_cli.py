@@ -11,7 +11,7 @@ from .formats import OUTPUT_FORMATS
 from .library import LibraryIndex
 from .library_service import LibraryService
 from .library_state import LibraryState
-from .jobs import JobQueue
+from .jobs import JobAction, JobQueue, JobStatus, validate_run_limit
 from .paths import default_output_root
 from .terminal_ui import SUPPORTED_LANGUAGES, ensure_utf8_stream
 
@@ -195,6 +195,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_paths(update)
     _add_state_path(update)
+    sync = subparsers.add_parser(
+        "sync",
+        help="Vérifie et télécharge les nouveautés des publications suivies",
+    )
+    sync.add_argument("--publication-id")
+    sync.add_argument(
+        "--queue",
+        type=Path,
+        help="File SQLite (défaut : ROOT/.komaforge/jobs.sqlite)",
+    )
+    sync.add_argument(
+        "--limit",
+        type=validate_run_limit,
+        default=100,
+        metavar="1-1000",
+    )
+    _add_paths(sync)
+    _add_state_path(sync)
     progress = subparsers.add_parser("progress", help="Enregistre la progression de lecture")
     progress.add_argument("publication_id")
     progress.add_argument("part_id")
@@ -284,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
             "updates",
             "updates-seen",
             "update",
+            "sync",
             "progress",
             "read",
             "continue",
@@ -579,6 +598,56 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     print(f"{len(queued)} vérification(s) ajoutée(s) à la file.")
                 return 0
+
+            if args.command == "sync":
+                queue_path = (
+                    args.queue.expanduser().resolve()
+                    if args.queue
+                    else root / ".komaforge" / "jobs.sqlite"
+                )
+                execution_output = (
+                    redirect_stdout(sys.stderr) if args.as_json else nullcontext()
+                )
+                with execution_output:
+                    result = service.sync_updates(
+                        JobQueue(queue_path),
+                        root,
+                        args.publication_id,
+                        limit=args.limit,
+                    )
+                jobs = result.executed_jobs
+                payload = {
+                    "queued_checks": len(result.queued_checks),
+                    "executed": len(jobs),
+                    "update_checks": sum(
+                        job.action is JobAction.UPDATE for job in jobs
+                    ),
+                    "downloads": sum(
+                        job.action is JobAction.DOWNLOAD for job in jobs
+                    ),
+                    "completed": sum(
+                        job.status is JobStatus.COMPLETED for job in jobs
+                    ),
+                    "failed": sum(job.status is JobStatus.FAILED for job in jobs),
+                    "new_parts": result.new_parts,
+                    "pending": result.pending_jobs,
+                    "queue": str(queue_path),
+                }
+                if args.as_json:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+                else:
+                    print(
+                        f"Synchronisation : {payload['update_checks']} vérification(s), "
+                        f"{payload['downloads']} téléchargement(s), "
+                        f"{payload['new_parts']} nouveauté(s), "
+                        f"{payload['failed']} échec(s)."
+                    )
+                    if payload["pending"]:
+                        print(
+                            f"{payload['pending']} travail/travaux de synchronisation "
+                            "reste(nt) en attente."
+                        )
+                return 0 if payload["failed"] == 0 else 1
 
             views = service.tracked()
             payload = [

@@ -1501,7 +1501,7 @@ def _use_direct_pdf(
         recover_requested = _ask_interactive_detached_recovery(
             args, pdf_diagnostics, authoritative_expected.value
         )
-    if incomplete and recover_requested and not args.inspect:
+    if incomplete and recover_requested:
         try:
             data, recovery = recover_detached_page_tree(
                 data, authoritative_expected.value

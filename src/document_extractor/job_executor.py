@@ -10,7 +10,7 @@ from .cli import parse_args
 from .legacy_bridge import normalize_legacy_manifest
 from .library import LibraryIndex
 from .library_state import LibraryState
-from .jobs import Job, JobAction, JobQueue, JobStatus
+from .jobs import Job, JobAction, JobQueue, JobStatus, validate_run_limit
 from .paths import canonical_source_identity, default_output_root
 from .updates import compare_part_updates
 
@@ -171,8 +171,12 @@ class JobExecutor:
                 )
             active_downloads.add(identity)
 
-    def run_next(self) -> Job | None:
-        job = self.queue.claim_next(EXECUTABLE_ACTIONS)
+    def run_next(
+        self,
+        *,
+        actions: tuple[JobAction, ...] = EXECUTABLE_ACTIONS,
+    ) -> Job | None:
+        job = self.queue.claim_next(actions)
         if job is None:
             return None
         try:
@@ -193,14 +197,20 @@ class JobExecutor:
             return self.queue.complete(job.id)
         return self.queue.fail(job.id, f"execution returned exit code {exit_code}")
 
-    def run_all(self, *, limit: int = 100) -> tuple[Job, ...]:
+    def run_all(
+        self,
+        *,
+        limit: int = 100,
+        actions: tuple[JobAction, ...] = EXECUTABLE_ACTIONS,
+    ) -> tuple[Job, ...]:
         """Drain executable jobs, including downloads created by update checks."""
 
-        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
-            raise ValueError("limit must be a positive integer")
+        limit = validate_run_limit(limit)
+        if not actions or not all(isinstance(action, JobAction) for action in actions):
+            raise ValueError("actions must be a non-empty tuple of JobAction values")
         completed: list[Job] = []
         for _ in range(limit):
-            job = self.run_next()
+            job = self.run_next(actions=actions)
             if job is None:
                 break
             completed.append(job)

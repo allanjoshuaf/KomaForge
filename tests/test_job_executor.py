@@ -289,6 +289,25 @@ class JobExecutorTests(unittest.TestCase):
                 [JobStatus.COMPLETED, JobStatus.PENDING],
             )
 
+    def test_run_all_can_leave_unrelated_actions_pending(self):
+        with tempfile.TemporaryDirectory() as temp:
+            queue = JobQueue(Path(temp) / "jobs.sqlite")
+            queue.enqueue(JobAction.INSPECT, "https://example.test/inspect")
+            queue.enqueue(JobAction.DOWNLOAD, "https://example.test/download")
+            calls = []
+
+            jobs = JobExecutor(
+                queue,
+                lambda args: calls.append(args.url) or 0,
+            ).run_all(actions=(JobAction.UPDATE, JobAction.DOWNLOAD))
+
+            self.assertEqual(calls, ["https://example.test/download"])
+            self.assertEqual([job.action for job in jobs], [JobAction.DOWNLOAD])
+            self.assertEqual(
+                [job.status for job in queue.list()],
+                [JobStatus.PENDING, JobStatus.COMPLETED],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,11 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- la bibliothèque peut maintenant synchroniser en une commande les publications
+  suivies : vérifications et nouveaux téléchargements sont exécutés dans une limite
+  bornée, sans consommer les inspections indépendantes déjà présentes dans la file ;
+- une inspection PDF autorisée peut maintenant reconstruire et recompter en mémoire
+  un arbre de pages détaché, sans écrire d’artefact ni de manifeste ;
 - MangaDex fournit maintenant recherche, populaires, dernières mises à jour,
   catalogue de chapitres et pages originales MangaDex@Home, avec attribution de
   la source et des groupes de traduction conservée dans les métadonnées ;

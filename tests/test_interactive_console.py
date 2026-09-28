@@ -65,6 +65,24 @@ class InteractiveConsoleTests(unittest.TestCase):
             self.assertIn("Reprendre la dernière lecture", rendered)
             self.assertIn("Lire dans KomaForge", rendered)
 
+    def test_library_sync_is_available_from_the_hub(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            stream = StringIO()
+            ui = TerminalUI("fr", stream=stream)
+            answers = iter(("4", "14", "23", "1"))
+
+            with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
+                mode = interactive_hub(ui, root=root)
+
+            self.assertEqual(mode, "guided")
+            self.assertIn(
+                "[OK] Synchroniser maintenant les publications suivies",
+                stream.getvalue(),
+            )
+
     def test_job_can_be_added_and_listed_from_the_hub(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -876,6 +876,8 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=120,
             )
@@ -908,6 +910,8 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=120,
             )
@@ -1245,6 +1249,42 @@ class EndToEndDetectionTests(unittest.TestCase):
             self.assertEqual(manifest["source_visible_page_count"], 3)
             self.assertTrue(manifest["recovered_from_detached_tree"])
             self.assertEqual(manifest["publication"]["status"], "complete")
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_authorized_inspection_validates_detached_recovery_without_writing(self):
+        project = Path(__file__).resolve().parents[1]
+        url = (
+            f"http://127.0.0.1:{self.server.server_port}"
+            "/network-pdf-reader-incomplete"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "document_extractor",
+                    url,
+                    "--inspect",
+                    "--recover-detached-pdf",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=120,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[RÉCUPÉRÉ]", result.stdout)
+            self.assertIn("10 pages", result.stdout)
+            self.assertFalse((Path(temp) / "document.pdf").exists())
+            self.assertFalse((Path(temp) / "pages.json").exists())
 
     @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
     def test_interactive_original_mode_keeps_pdf_and_requests_recovery(self):

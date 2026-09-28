@@ -319,6 +319,40 @@ class LibraryStateTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 service.queue_updates(queue, "missing-publication")
 
+    def test_sync_runs_updates_without_consuming_unrelated_inspections(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "outputs"
+            manifest_path = root / "One" / "pages.json"
+            write_manifest(
+                manifest_path,
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            state = LibraryState(root / ".komaforge" / "state.sqlite")
+            service = LibraryService(index, state)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            service.track(publication.id)
+            queue = JobQueue(root / ".komaforge" / "jobs.sqlite")
+            queue.enqueue(JobAction.INSPECT, "https://example.test/unrelated")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+            def runner(args):
+                args.inspection_manifest = manifest
+                return 0
+
+            result = service.sync_updates(queue, root, runner=runner)
+
+            self.assertEqual(len(result.queued_checks), 1)
+            self.assertEqual(len(result.executed_jobs), 1)
+            self.assertEqual(result.executed_jobs[0].action, JobAction.UPDATE)
+            self.assertEqual(result.new_parts, 0)
+            self.assertEqual(result.pending_jobs, 0)
+            self.assertEqual(queue.list()[0].action, JobAction.INSPECT)
+            self.assertEqual(queue.list()[0].status.value, "pending")
+
     def test_history_resolves_progress_back_to_publication_and_part(self):
         with tempfile.TemporaryDirectory() as temp:
             _, index, _, service = self._service(temp)

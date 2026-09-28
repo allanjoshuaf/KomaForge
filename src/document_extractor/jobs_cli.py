@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .formats import OUTPUT_FORMATS
 from .job_executor import JobExecutor
-from .jobs import Job, JobAction, JobQueue, JobStatus
+from .jobs import Job, JobAction, JobQueue, JobStatus, validate_run_limit
 from .paths import default_output_root
 from .terminal_ui import SUPPORTED_LANGUAGES, ensure_utf8_stream
 
@@ -97,7 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Bibliothèque de destination (déduite de la file par défaut)",
     )
-    run_all.add_argument("--limit", type=int, choices=range(1, 1001), default=100)
+    run_all.add_argument(
+        "--limit",
+        type=validate_run_limit,
+        default=100,
+        metavar="1-1000",
+    )
     run_all.add_argument("--json", action="store_true", dest="as_json")
     _add_queue_path(run_all)
     return parser

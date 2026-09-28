@@ -224,6 +224,8 @@ komaforge library mark-read IDENTIFIANT_PUBLICATION
 komaforge library mark-unread IDENTIFIANT_PUBLICATION
 komaforge library update
 komaforge library update --publication-id IDENTIFIANT_PUBLICATION
+komaforge library sync
+komaforge library sync --publication-id IDENTIFIANT_PUBLICATION --limit 100
 komaforge library updates
 komaforge library updates-seen
 komaforge library history
@@ -257,6 +259,10 @@ terminée et sa dernière position enregistrée, globalement ou pour une publica
 progression concernée sans retirer la publication du suivi.
 `library update` ajoute une vérification pour chaque publication suivie sans créer de
 doublon lorsqu’une vérification identique est déjà en attente ou en cours.
+`library sync` effectue ce même travail puis exécute, dans une limite explicite, les
+vérifications et téléchargements de mise à jour. Les inspections indépendantes déjà
+présentes dans la file ne sont pas consommées par cette synchronisation. Sa sortie
+JSON sépare vérifications, téléchargements, nouveautés, échecs et travaux restants.
 Lorsqu’une vérification découvre de nouvelles parties, `library updates` les liste
 séparément du statut de lecture. `library updates-seen` les marque comme consultées
 sans les marquer comme lues et sans supprimer les téléchargements planifiés.
@@ -510,6 +516,8 @@ tester, `--recover-detached-pdf` réassemble un unique arbre uniquement lorsque 
 nombre déclaré et résolu correspond aux métadonnées attendues, que tout le préfixe
 visible correspond et que chaque page de continuation possède contenu et ressources.
 Le résultat est ensuite rouvert et recompté avant d'être accepté.
+Avec `--inspect`, cette reconstruction reste entièrement en mémoire : elle permet de
+valider la couverture complète sans créer de PDF ni de manifeste.
 Dans le menu interactif, cette autorisation est demandée au moment de la détection,
 et seulement après que toutes ces vérifications ont réussi. Une commande directe
 reste non interactive et exige explicitement `--recover-detached-pdf`.
