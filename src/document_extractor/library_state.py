@@ -421,26 +421,51 @@ class LibraryState:
             seen=bool(row["seen"]),
         )
 
-    def updates(self, *, unseen_only: bool = False) -> tuple[UpdateEvent, ...]:
+    def updates(
+        self,
+        *,
+        unseen_only: bool = False,
+        publication_id: str | None = None,
+    ) -> tuple[UpdateEvent, ...]:
         if not self.path.is_file():
             return ()
         with _open_connection(self.path) as connection:
             _create_schema(connection)
             query = "SELECT * FROM update_events"
-            parameters: tuple[object, ...] = ()
+            clauses: list[str] = []
+            parameters: list[object] = []
             if unseen_only:
-                query += " WHERE seen = 0"
+                clauses.append("seen = 0")
+            if publication_id is not None:
+                clauses.append("publication_id = ?")
+                parameters.append(publication_id)
+            if clauses:
+                query += " WHERE " + " AND ".join(clauses)
             query += " ORDER BY discovered_at DESC, id DESC"
-            rows = connection.execute(query, parameters).fetchall()
+            rows = connection.execute(query, tuple(parameters)).fetchall()
             connection.commit()
         return tuple(self._update_event(row) for row in rows)
 
-    def mark_updates_seen(self, publication_id: str | None = None) -> int:
+    def mark_updates_seen(
+        self,
+        publication_id: str | None = None,
+        part_id: str | None = None,
+    ) -> int:
+        if part_id is not None and publication_id is None:
+            raise ValueError("part_id requires publication_id")
         if not self.path.is_file():
             return 0
         with _open_connection(self.path) as connection:
             _create_schema(connection)
-            if publication_id is None:
+            if part_id is not None:
+                cursor = connection.execute(
+                    """
+                    UPDATE update_events SET seen = 1
+                    WHERE publication_id = ? AND part_id = ? AND seen = 0
+                    """,
+                    (publication_id, part_id),
+                )
+            elif publication_id is None:
                 cursor = connection.execute(
                     "UPDATE update_events SET seen = 1 WHERE seen = 0"
                 )

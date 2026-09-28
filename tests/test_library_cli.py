@@ -300,6 +300,8 @@ class LibraryCliTests(unittest.TestCase):
                     [
                         "updates",
                         *common,
+                        "--publication-id",
+                        publication_id,
                         "--queue",
                         str(queue_path),
                         "--json",
@@ -309,7 +311,17 @@ class LibraryCliTests(unittest.TestCase):
 
             output = StringIO()
             with redirect_stdout(output):
-                seen_code = main(["updates-seen", *common, "--json"])
+                seen_code = main(
+                    [
+                        "updates-seen",
+                        *common,
+                        "--publication-id",
+                        publication_id,
+                        "--part-id",
+                        "part-two",
+                        "--json",
+                    ]
+                )
 
             self.assertEqual(list_code, 0)
             self.assertEqual(updates[0]["part_title"], "Chapter 2")

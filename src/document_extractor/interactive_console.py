@@ -8,7 +8,7 @@ from .formats import OUTPUT_FORMATS
 from .job_executor import JobExecutor
 from .jobs import JobAction, JobQueue, JobStatus
 from .library import SCHEMA_VERSION, LibraryIndex
-from .library_service import LibraryService
+from .library_service import LibraryService, LibraryUpdateView
 from .library_state import LibraryState
 from .paths import default_output_root
 from .source_cli import (
@@ -116,8 +116,10 @@ PLATFORM_MESSAGES = {
         "updates_empty": "Aucune nouvelle partie détectée.",
         "query": "Recherche",
         "publication_id": "Identifiant de publication",
+        "publication_id_optional": "Identifiant de publication (Entrée pour toutes)",
         "part_id": "Identifiant de partie",
         "part_id_optional": "Identifiant de partie (Entrée pour reprendre automatiquement)",
+        "update_read_select": "Numéro à lire (Entrée pour revenir)",
         "position": "Position de la ressource",
         "complete": "Partie terminée ?",
         "yes_no": "o/N",
@@ -235,8 +237,10 @@ PLATFORM_MESSAGES = {
         "updates_empty": "No new parts detected.",
         "query": "Search",
         "publication_id": "Publication identifier",
+        "publication_id_optional": "Publication identifier (Enter for all)",
         "part_id": "Part identifier",
         "part_id_optional": "Part identifier (Enter to resume automatically)",
+        "update_read_select": "Number to read (Enter to return)",
         "position": "Resource position",
         "complete": "Part completed?",
         "yes_no": "y/N",
@@ -354,8 +358,10 @@ PLATFORM_MESSAGES = {
         "updates_empty": "Новых частей не обнаружено.",
         "query": "Поиск",
         "publication_id": "ID публикации",
+        "publication_id_optional": "ID публикации (Enter: все)",
         "part_id": "ID части",
         "part_id_optional": "ID части (Enter: продолжить автоматически)",
+        "update_read_select": "Номер для чтения (Enter: назад)",
         "position": "Позиция ресурса",
         "complete": "Часть завершена?",
         "yes_no": "д/Н",
@@ -473,8 +479,10 @@ PLATFORM_MESSAGES = {
         "updates_empty": "未检测到新部分。",
         "query": "搜索",
         "publication_id": "出版物标识符",
+        "publication_id_optional": "出版物标识符（按 Enter 选择全部）",
         "part_id": "部分标识符",
         "part_id_optional": "部分标识符（按 Enter 自动继续）",
+        "update_read_select": "要阅读的编号（按 Enter 返回）",
         "position": "资源位置",
         "complete": "该部分已完成？",
         "yes_no": "是/否",
@@ -784,22 +792,24 @@ def _show_updates(
     ui: TerminalUI,
     service: LibraryService,
     queue: JobQueue,
-) -> None:
+) -> tuple[LibraryUpdateView, ...]:
     updates = service.updates(unseen_only=True, queue=queue)
     if not updates:
         ui.notice(_text(ui, "updates_empty"), "info")
-        return
-    for item in updates:
+        return ()
+    for position, item in enumerate(updates, start=1):
         download_status = (
             item.download_job.status.value
             if item.download_job is not None
             else _text(ui, "unknown")
         )
-        ui.item(
+        ui.option(
+            position,
             item.update.part_title,
             f"{item.publication.title} · {download_status} · "
             f"{item.update.discovered_at}",
         )
+    return updates
 
 
 def category_menu(
@@ -1036,9 +1046,31 @@ def library_menu(ui: TerminalUI, root: Path | None = None) -> None:
                 )
             elif choice == "21" and _library_ready(ui, index, library_root):
                 ui.section(_text(ui, "library_updates"))
-                _show_updates(ui, service, queue)
+                updates = _show_updates(ui, service, queue)
+                if updates:
+                    selected = ui.prompt(_text(ui, "update_read_select"))
+                    if selected:
+                        position = int(selected)
+                        if not 1 <= position <= len(updates):
+                            raise ValueError(_text(ui, "submenu_invalid"))
+                        update = updates[position - 1]
+                        path = service.read_artifact(
+                            update.publication.id,
+                            part_id=update.update.part_id,
+                        )
+                        service.mark_updates_seen(
+                            update.publication.id,
+                            update.update.part_id,
+                        )
+                        ui.notice(
+                            f"{_text(ui, 'library_read')} : {path.name}",
+                            "success",
+                        )
             elif choice == "22" and _library_ready(ui, index, library_root):
-                marked = service.mark_updates_seen()
+                publication_id = (
+                    ui.prompt(_text(ui, "publication_id_optional")) or None
+                )
+                marked = service.mark_updates_seen(publication_id)
                 ui.notice(
                     f"{_text(ui, 'library_updates_seen')} : {marked}",
                     "success",

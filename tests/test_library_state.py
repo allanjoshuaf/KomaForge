@@ -411,6 +411,32 @@ class LibraryStateTests(unittest.TestCase):
             self.assertEqual(update.download_job, job)
             self.assertEqual(update.download_job.status.value, "pending")
 
+    def test_update_events_can_be_filtered_and_acknowledged_individually(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, index, state, service = self._service(temp)
+            publication = index.load_publication(next(index.iter_publications())["id"])
+            service.track(publication.id)
+            for part_id in ("future-one", "future-two"):
+                state.record_update(
+                    publication.id,
+                    part_id,
+                    part_id,
+                    f"https://example.test/one/{part_id}",
+                )
+
+            filtered = service.updates(
+                unseen_only=True,
+                publication_id=publication.id,
+            )
+            marked = service.mark_updates_seen(publication.id, "future-one")
+
+            self.assertEqual(len(filtered), 2)
+            self.assertEqual(marked, 1)
+            self.assertEqual(
+                [item.update.part_id for item in service.updates(unseen_only=True)],
+                ["future-two"],
+            )
+
     def test_service_resolves_category_members_to_current_publications(self):
         with tempfile.TemporaryDirectory() as temp:
             _, index, state, service = self._service(temp)

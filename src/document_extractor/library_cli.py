@@ -180,6 +180,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Inclut les nouveautés déjà consultées",
     )
     updates.add_argument(
+        "--publication-id",
+        help="Limite les nouveautés à une publication",
+    )
+    updates.add_argument(
         "--queue",
         type=Path,
         help="File SQLite (défaut : ROOT/.komaforge/jobs.sqlite)",
@@ -190,6 +194,10 @@ def build_parser() -> argparse.ArgumentParser:
         "updates-seen", help="Marque les nouveautés comme consultées"
     )
     updates_seen.add_argument("--publication-id")
+    updates_seen.add_argument(
+        "--part-id",
+        help="Marque une seule partie (nécessite --publication-id)",
+    )
     _add_paths(updates_seen)
     _add_state_path(updates_seen)
     update = subparsers.add_parser(
@@ -568,6 +576,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 updates = service.updates(
                     unseen_only=not args.all,
+                    publication_id=args.publication_id,
                     queue=JobQueue(queue_path),
                 )
                 payload = [
@@ -607,7 +616,10 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if args.command == "updates-seen":
-                marked = service.mark_updates_seen(args.publication_id)
+                marked = service.mark_updates_seen(
+                    args.publication_id,
+                    args.part_id,
+                )
                 payload = {"marked_seen": marked}
                 if args.as_json:
                     print(json.dumps(payload, sort_keys=True))

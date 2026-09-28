@@ -204,7 +204,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             )
             stream = StringIO()
             ui = TerminalUI("fr", stream=stream)
-            answers = iter(("4", "21", "22", "23", "1"))
+            answers = iter(("4", "21", "", "22", "", "23", "1"))
 
             with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
                 mode = interactive_hub(ui, root=root)
@@ -249,6 +249,47 @@ class InteractiveConsoleTests(unittest.TestCase):
                 publication.id,
                 part_id=publication.parts[0].id,
             )
+            self.assertIn("one.cbz", stream.getvalue())
+
+    def test_library_update_can_be_selected_read_and_acknowledged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_manifest(
+                root / "One" / "pages.json",
+                "https://example.test/one",
+                "One",
+                "https://cdn.example.test/one.webp",
+            )
+            index = LibraryIndex(root / ".komaforge" / "library.sqlite")
+            index.rebuild(root)
+            publication = index.load_publication(index.list_publications()[0]["id"])
+            part = publication.parts[0]
+            state = LibraryState(root / ".komaforge" / "state.sqlite")
+            state.track(publication.id)
+            state.record_update(
+                publication.id,
+                part.id,
+                part.title,
+                part.source_url,
+            )
+            artifact = root / "One" / "one.cbz"
+            stream = StringIO()
+            ui = TerminalUI("fr", stream=stream)
+            answers = iter(("4", "21", "1", "23", "1"))
+
+            with patch.object(
+                LibraryService,
+                "read_artifact",
+                return_value=artifact,
+            ) as read_artifact, patch(
+                "builtins.input",
+                side_effect=lambda _prompt: next(answers),
+            ):
+                mode = interactive_hub(ui, root=root)
+
+            self.assertEqual(mode, "guided")
+            read_artifact.assert_called_once_with(publication.id, part_id=part.id)
+            self.assertEqual(state.updates(unseen_only=True), ())
             self.assertIn("one.cbz", stream.getvalue())
 
 

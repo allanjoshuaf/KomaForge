@@ -296,6 +296,7 @@ class LibraryService:
         self,
         *,
         unseen_only: bool = False,
+        publication_id: str | None = None,
         queue: JobQueue | None = None,
     ) -> tuple[LibraryUpdateView, ...]:
         """List newly discovered parts independently from reading progress."""
@@ -306,7 +307,10 @@ class LibraryService:
             else {}
         )
         views: list[LibraryUpdateView] = []
-        for update in self.state.updates(unseen_only=unseen_only):
+        for update in self.state.updates(
+            unseen_only=unseen_only,
+            publication_id=publication_id,
+        ):
             publication = self.index.load_publication(update.publication_id)
             if publication is not None:
                 views.append(
@@ -318,14 +322,18 @@ class LibraryService:
                 )
         return tuple(views)
 
-    def mark_updates_seen(self, publication_id: str | None = None) -> int:
+    def mark_updates_seen(
+        self,
+        publication_id: str | None = None,
+        part_id: str | None = None,
+    ) -> int:
         if publication_id is not None:
             tracked = {
                 item.publication_id for item in self.state.tracked()
             }
             if publication_id not in tracked:
                 raise KeyError(publication_id)
-        return self.state.mark_updates_seen(publication_id)
+        return self.state.mark_updates_seen(publication_id, part_id)
 
     def queue_updates(
         self,

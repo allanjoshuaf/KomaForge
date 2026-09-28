@@ -228,7 +228,9 @@ komaforge library update --publication-id IDENTIFIANT_PUBLICATION
 komaforge library sync
 komaforge library sync --publication-id IDENTIFIANT_PUBLICATION --limit 100
 komaforge library updates
+komaforge library updates --publication-id IDENTIFIANT_PUBLICATION
 komaforge library updates-seen
+komaforge library updates-seen --publication-id IDENTIFIANT_PUBLICATION --part-id IDENTIFIANT_PARTIE
 komaforge library history
 komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
 ```
@@ -268,6 +270,9 @@ Lorsqu’une vérification découvre de nouvelles parties, `library updates` les
 séparément du statut de lecture et indique si leur téléchargement est en attente,
 terminé ou en échec. `library updates-seen` les marque comme consultées sans les
 marquer comme lues et sans supprimer les téléchargements planifiés.
+La commande peut filtrer une publication et acquitter une seule partie. Dans le
+menu Bibliothèque, une nouveauté peut être choisie par son numéro puis ouverte
+directement ; seule cette partie est alors marquée comme consultée.
 `downloaded` ne retient que les artefacts encore présents et `history` résout la
 progression persistante vers les titres de publication et de partie actuels.
 Les catégories servent à organiser une même publication suivie dans plusieurs
