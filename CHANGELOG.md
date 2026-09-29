@@ -4,6 +4,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- les titres en alphabet cyrillique, chinois et autres écritures Unicode gardent
+  désormais un nom de dossier lisible au lieu de se réduire à quelques chiffres ;
 - les manifestes tiers sûrs peuvent maintenant être activés explicitement comme
   sources déclaratives : aucun code externe n’est chargé, leurs domaines sont
   routés vers les familles génériques intégrées et leurs autorisations réseau

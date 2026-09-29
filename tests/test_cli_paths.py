@@ -54,6 +54,13 @@ class PortablePathTests(unittest.TestCase):
             "Attack-on-Titan-Chapter-1",
         )
 
+    def test_slug_preserves_non_latin_titles(self):
+        self.assertEqual(
+            safe_slug("Россия — моя любовь | PDF"),
+            "Россия-моя-любовь-PDF",
+        )
+        self.assertEqual(safe_slug("量子场论 / 第一章"), "量子场论-第一章")
+
     def test_opaque_reader_url_uses_book_title_and_chapter(self):
         url = (
             "https://www.mangareader.pro/reader/1?"
