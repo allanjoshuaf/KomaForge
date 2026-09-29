@@ -1,16 +1,41 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 from document_extractor.source_cli import main
 from tests.test_mangadex_source import FakeApi
+from tests.test_source_packages import write_manifest
 
 
 class SourceCliTests(unittest.TestCase):
+    def test_extensions_command_inspects_manifests_without_loading_code(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            write_manifest(directory / "example.json")
+            output = StringIO()
+
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "extensions",
+                        "--directory",
+                        str(directory),
+                        "--json",
+                    ]
+                )
+            records = json.loads(output.getvalue())
+
+            self.assertEqual(code, 0)
+            self.assertEqual(records[0]["id"], "example-reader")
+            self.assertFalse(records[0]["enabled"])
+            self.assertFalse(records[0]["executable"])
+
     @patch("document_extractor.sources.mangadex._fetch_json", new_callable=FakeApi)
     def test_search_queries_capable_sources_and_returns_stable_json(self, _api):
         output = StringIO()

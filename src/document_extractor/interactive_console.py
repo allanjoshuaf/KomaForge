@@ -18,6 +18,7 @@ from .source_cli import (
     family_records,
     source_records,
 )
+from .source_packages import default_source_packages_dir, package_records
 from .terminal_ui import TerminalUI
 
 
@@ -38,6 +39,8 @@ PLATFORM_MESSAGES = {
         "sources_search": "Rechercher dans les catalogues",
         "sources_popular": "Afficher les œuvres populaires",
         "sources_latest": "Afficher les dernières mises à jour",
+        "sources_extensions": "Inspecter les extensions tierces",
+        "extensions_empty": "Aucun manifeste d’extension installé.",
         "remote_empty": "Aucun résultat distant.",
         "remote_select": "Numéro à ajouter à la bibliothèque (Entrée pour annuler)",
         "remote_invalid": "Résultat distant invalide.",
@@ -159,6 +162,8 @@ PLATFORM_MESSAGES = {
         "sources_search": "Search remote catalogs",
         "sources_popular": "Show popular works",
         "sources_latest": "Show latest updates",
+        "sources_extensions": "Inspect third-party extensions",
+        "extensions_empty": "No extension manifest is installed.",
         "remote_empty": "No remote results.",
         "remote_select": "Result number to add to the library (Enter to cancel)",
         "remote_invalid": "Invalid remote result.",
@@ -280,6 +285,8 @@ PLATFORM_MESSAGES = {
         "sources_search": "Поиск в удалённых каталогах",
         "sources_popular": "Популярные произведения",
         "sources_latest": "Последние обновления",
+        "sources_extensions": "Проверить сторонние расширения",
+        "extensions_empty": "Манифесты расширений не установлены.",
         "remote_empty": "Удалённых результатов нет.",
         "remote_select": "Номер для добавления в библиотеку (Enter — отмена)",
         "remote_invalid": "Неверный удалённый результат.",
@@ -401,6 +408,8 @@ PLATFORM_MESSAGES = {
         "sources_search": "搜索远程目录",
         "sources_popular": "显示热门作品",
         "sources_latest": "显示最新更新",
+        "sources_extensions": "检查第三方扩展",
+        "extensions_empty": "未安装扩展清单。",
         "remote_empty": "没有远程结果。",
         "remote_select": "输入要加入书库的编号（按 Enter 取消）",
         "remote_invalid": "远程结果无效。",
@@ -561,6 +570,22 @@ def _show_candidates(ui: TerminalUI) -> None:
         )
 
 
+def _show_extensions(ui: TerminalUI) -> None:
+    ui.section(_text(ui, "sources_extensions"))
+    records = package_records(default_source_packages_dir())
+    if not records:
+        ui.notice(_text(ui, "extensions_empty"), "info")
+        return
+    for record in records:
+        if record["valid"]:
+            ui.item(
+                f"{record['name']} · {record['version']}",
+                f"{record['id']} · disabled · non-executable",
+            )
+        else:
+            ui.item(Path(record["path"]).name, f"rejected · {record['error']}")
+
+
 def _match_source(ui: TerminalUI) -> None:
     url = ui.prompt(_text(ui, "url"))
     if not url:
@@ -648,9 +673,10 @@ def sources_menu(ui: TerminalUI, root: Path | None = None) -> None:
         ui.option(5, _text(ui, "sources_search"))
         ui.option(6, _text(ui, "sources_popular"))
         ui.option(7, _text(ui, "sources_latest"))
-        ui.option(8, _text(ui, "back"))
+        ui.option(8, _text(ui, "sources_extensions"))
+        ui.option(9, _text(ui, "back"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
-        if choice == "8":
+        if choice == "9":
             return
         try:
             if choice == "1":
@@ -667,6 +693,8 @@ def sources_menu(ui: TerminalUI, root: Path | None = None) -> None:
                 _show_remote_catalog(ui, "popular", library_root)
             elif choice == "7":
                 _show_remote_catalog(ui, "latest", library_root)
+            elif choice == "8":
+                _show_extensions(ui)
             else:
                 ui.error(_text(ui, "submenu_invalid"))
         except (RuntimeError, ValueError) as exc:

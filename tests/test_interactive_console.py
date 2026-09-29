@@ -34,7 +34,7 @@ class InteractiveConsoleTests(unittest.TestCase):
     def test_sources_are_visible_before_returning_to_extraction(self):
         stream = StringIO()
         ui = TerminalUI("fr", stream=stream)
-        answers = iter(("3", "1", "8", "1"))
+        answers = iter(("3", "1", "9", "1"))
 
         with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
             mode = interactive_hub(ui)
@@ -65,7 +65,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             added = SimpleNamespace(
                 publication=SimpleNamespace(title="Alchemy")
             )
-            answers = iter(("3", "5", "alchemy", "1", "original", "1", "8", "1"))
+            answers = iter(("3", "5", "alchemy", "1", "original", "1", "9", "1"))
 
             with patch(
                 "document_extractor.interactive_console.catalog_query",
@@ -92,6 +92,33 @@ class InteractiveConsoleTests(unittest.TestCase):
                 },
             )
             self.assertIn("[OK] Ajouté à la bibliothèque : Alchemy", stream.getvalue())
+
+    def test_third_party_manifest_is_visible_but_remains_disabled(self):
+        stream = StringIO()
+        ui = TerminalUI("en", stream=stream)
+        answers = iter(("3", "8", "9", "1"))
+        records = (
+            {
+                "path": "example.json",
+                "valid": True,
+                "error": None,
+                "id": "example-reader",
+                "name": "Example Reader",
+                "version": "1.0.0",
+                "enabled": False,
+                "executable": False,
+            },
+        )
+
+        with patch(
+            "document_extractor.interactive_console.package_records",
+            return_value=records,
+        ), patch("builtins.input", side_effect=lambda _prompt: next(answers)):
+            mode = interactive_hub(ui)
+
+        self.assertEqual(mode, "guided")
+        self.assertIn("Example Reader · 1.0.0", stream.getvalue())
+        self.assertIn("disabled · non-executable", stream.getvalue())
 
     def test_library_can_be_rebuilt_and_inspected_from_the_hub(self):
         with tempfile.TemporaryDirectory() as temp:

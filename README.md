@@ -341,6 +341,8 @@ komaforge sources list --access session_dependent
 komaforge sources status
 komaforge sources families
 komaforge sources candidates
+komaforge sources extensions
+komaforge sources extensions --directory "C:\chemin\vers\les\manifestes" --json
 komaforge sources match "https://global.manga-up.com/manga/126"
 komaforge sources search "Fullmetal Alchemist" --source mangadex
 komaforge sources popular --source mangadex
@@ -364,6 +366,13 @@ déterministe et une stratégie reconnue n’agrège pas silencieusement les ima
 d’une autre famille.
 La découverte des parties applique la même règle aux liens de chapitre, contrôles
 de volume/section et publications à document unique.
+`extensions` inspecte des manifestes JSON tiers locaux avec un schéma borné. Ces
+manifestes déclarent identifiant, domaines, langues, familles, capacités et
+permissions réseau, mais restent désactivés et non exécutables. Les points d’entrée
+Python, accès au système de fichiers, familles inconnues, conflits d’identifiant,
+doublons, liens symboliques et manifestes de plus de 64 Kio sont refusés. Cette
+étape rend les paquets auditables sans prétendre qu’un module Python chargé dans le
+processus principal serait isolé.
 SushiScan et MangaReader.pro peuvent ainsi être marqués compatibles et validés tout
 en restant honnêtement décrits comme des intégrations génériques. La date du dernier
 contrôle live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.

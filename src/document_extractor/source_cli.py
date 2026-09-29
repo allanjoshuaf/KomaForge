@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .application import resolve_source
 from .part_families import BUILTIN_PART_STRATEGIES
 from .reader_families import BUILTIN_RESOURCE_STRATEGIES
+from .source_packages import default_source_packages_dir, package_records
 from .sources import (
     BUILTIN_READER_FAMILIES,
     BUILTIN_SOURCE_CANDIDATES,
@@ -88,6 +90,17 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[value.value for value in SourceAccess],
         help="Filtre les sites par condition d’accès",
     )
+    extensions = commands.add_parser(
+        "extensions",
+        help="Inspecte les manifestes de sources tierces sans exécuter leur code",
+    )
+    extensions.add_argument(
+        "--directory",
+        type=Path,
+        default=default_source_packages_dir(),
+        help="Dossier des manifestes JSON de sources tierces",
+    )
+    extensions.add_argument("--json", action="store_true", dest="as_json")
     summary = commands.add_parser(
         "status",
         help="Résume la santé des adaptateurs, sites validés et familles",
@@ -377,6 +390,23 @@ def main(argv: list[str] | None = None) -> int:
                     f"{','.join(payload['sources']['browse']) or 'none'}"
                 )
             return 0
+
+        if args.command == "extensions":
+            records = package_records(args.directory)
+            if args.as_json:
+                print(json.dumps(records, ensure_ascii=False, sort_keys=True))
+            elif not records:
+                print(f"Aucun manifeste tiers dans : {args.directory.resolve()}")
+            else:
+                for record in records:
+                    if record["valid"]:
+                        print(
+                            f"{record['id']} | {record['name']} | v{record['version']} | "
+                            "validé, désactivé, non exécutable"
+                        )
+                    else:
+                        print(f"{record['path']} | rejeté | {record['error']}")
+            return 0 if all(record["valid"] for record in records) else 1
 
         if args.command in {"search", "popular", "latest"}:
             payload = catalog_query(

@@ -4,6 +4,9 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- les manifestes de sources tierces peuvent être inspectés depuis la commande et
+  le menu sans charger de code ; leur schéma refuse notamment les points d’entrée
+  exécutables, l’accès aux fichiers et les collisions avec les sources intégrées ;
 - le chargement progressif ne confond plus un nombre d’images stable avec la fin
   du lecteur tant que la position de défilement continue d’avancer ;
 - les lecteurs Blob, manifestes de chapitre, paginés et verticaux sont maintenant
