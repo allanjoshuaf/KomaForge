@@ -4,6 +4,10 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- les manifestes tiers sûrs peuvent maintenant être activés explicitement comme
+  sources déclaratives : aucun code externe n’est chargé, leurs domaines sont
+  routés vers les familles génériques intégrées et leurs autorisations réseau
+  alimentent la liste fermée des hôtes de ressources ;
 - Scribd : les conteneurs `outer_page_N` sont parcourus dans leur ordre réel,
   leur total devient une preuve de couverture et les recommandations de la page
   ne sont plus mélangées au document ; la référence testée retrouve `231/231` ;

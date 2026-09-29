@@ -8,7 +8,12 @@ from pathlib import Path
 from .application import resolve_source
 from .part_families import BUILTIN_PART_STRATEGIES
 from .reader_families import BUILTIN_RESOURCE_STRATEGIES
-from .source_packages import default_source_packages_dir, package_records
+from .source_packages import (
+    build_runtime_registry,
+    default_source_packages_dir,
+    package_records,
+    set_source_package_enabled,
+)
 from .sources import (
     BUILTIN_READER_FAMILIES,
     BUILTIN_SOURCE_CANDIDATES,
@@ -60,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[value.value for value in SourceAccess],
         help="Filtre les adaptateurs par condition d’accès",
     )
+    listing.add_argument(
+        "--sources-directory",
+        type=Path,
+        default=default_source_packages_dir(),
+    )
     families = commands.add_parser(
         "families",
         help="Liste les familles de lecteurs réutilisables",
@@ -101,14 +111,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Dossier des manifestes JSON de sources tierces",
     )
     extensions.add_argument("--json", action="store_true", dest="as_json")
+    for command, help_text in (
+        ("extension-enable", "Active une source déclarative sans charger de code"),
+        ("extension-disable", "Désactive une source déclarative"),
+    ):
+        activation = commands.add_parser(command, help=help_text)
+        activation.add_argument("source_id")
+        activation.add_argument(
+            "--directory",
+            type=Path,
+            default=default_source_packages_dir(),
+        )
+        activation.add_argument("--json", action="store_true", dest="as_json")
     summary = commands.add_parser(
         "status",
         help="Résume la santé des adaptateurs, sites validés et familles",
     )
     summary.add_argument("--json", action="store_true", dest="as_json")
+    summary.add_argument(
+        "--sources-directory",
+        type=Path,
+        default=default_source_packages_dir(),
+    )
     match = commands.add_parser("match", help="Indique la source choisie pour une URL")
     match.add_argument("url")
     match.add_argument("--json", action="store_true", dest="as_json")
+    match.add_argument(
+        "--sources-directory",
+        type=Path,
+        default=default_source_packages_dir(),
+    )
     for command, help_text in (
         ("search", "Recherche dans les catalogues distants"),
         ("popular", "Liste les œuvres populaires"),
@@ -227,13 +259,20 @@ def describe_source(adapter, *, specialized: bool) -> dict:
     }
 
 
-def source_records() -> tuple[dict, ...]:
-    registry = build_default_registry()
-    specialized = tuple(
-        describe_source(adapter, specialized=True)
+def source_records(
+    sources_directory: Path | None = None,
+) -> tuple[dict, ...]:
+    registry = build_runtime_registry(sources_directory)
+    installed = tuple(
+        describe_source(
+            adapter,
+            specialized=(
+                metadata_for(adapter).integration is SourceIntegration.SPECIALIZED
+            ),
+        )
         for adapter in registry.all()
     )
-    return specialized + (describe_source(GenericWebSource(), specialized=False),)
+    return installed + (describe_source(GenericWebSource(), specialized=False),)
 
 
 def family_records() -> tuple[dict, ...]:
@@ -283,8 +322,8 @@ def _status_counts(records: tuple[dict, ...]) -> dict[str, int]:
     }
 
 
-def source_summary() -> dict:
-    sources = source_records()
+def source_summary(sources_directory: Path | None = None) -> dict:
+    sources = source_records(sources_directory)
     candidates = candidate_records()
     families = family_records()
     return {
@@ -321,8 +360,11 @@ def source_summary() -> dict:
     }
 
 
-def describe_url(url: str) -> dict:
-    route = resolve_source(url)
+def describe_url(
+    url: str,
+    sources_directory: Path | None = None,
+) -> dict:
+    route = resolve_source(url, registry=build_runtime_registry(sources_directory))
     payload = describe_source(route.adapter, specialized=route.specialized)
     candidate = candidate_for_url(url) if not route.specialized else None
     if candidate is not None:
@@ -372,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "status":
-            payload = source_summary()
+            payload = source_summary(args.sources_directory)
             if args.as_json:
                 print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
             else:
@@ -400,13 +442,32 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 for record in records:
                     if record["valid"]:
+                        state = "activé" if record["enabled"] else "désactivé"
                         print(
                             f"{record['id']} | {record['name']} | v{record['version']} | "
-                            "validé, désactivé, non exécutable"
+                            f"validé, {state}, non exécutable"
                         )
                     else:
                         print(f"{record['path']} | rejeté | {record['error']}")
             return 0 if all(record["valid"] for record in records) else 1
+
+        if args.command in {"extension-enable", "extension-disable"}:
+            enabled = set_source_package_enabled(
+                args.directory,
+                args.source_id,
+                enabled=args.command == "extension-enable",
+            )
+            payload = {
+                "source_id": args.source_id,
+                "enabled": args.source_id.casefold() in enabled,
+                "enabled_sources": list(enabled),
+            }
+            if args.as_json:
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                state = "activée" if payload["enabled"] else "désactivée"
+                print(f"Source {args.source_id} {state}.")
+            return 0
 
         if args.command in {"search", "popular", "latest"}:
             payload = catalog_query(
@@ -432,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if payload["results"] or not payload["errors"] else 1
 
         if args.command == "list":
-            sources = source_records()
+            sources = source_records(args.sources_directory)
             if args.status:
                 sources = tuple(
                     source for source in sources if source["status"] == args.status
@@ -517,7 +578,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
             return 0
 
-        payload = describe_url(args.url)
+        payload = describe_url(args.url, args.sources_directory)
         if args.as_json:
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:

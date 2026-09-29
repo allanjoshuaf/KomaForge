@@ -590,7 +590,9 @@ def _show_extensions(ui: TerminalUI) -> None:
         if record["valid"]:
             ui.item(
                 f"{record['name']} · {record['version']}",
-                f"{record['id']} · disabled · non-executable",
+                f"{record['id']} · "
+                f"{'enabled' if record['enabled'] else 'disabled'} · "
+                "non-executable",
             )
         else:
             ui.item(Path(record["path"]).name, f"rejected · {record['error']}")

@@ -14,8 +14,9 @@ from .sources import (
     SourceRegistry,
     SourceReference,
     SourceSession,
+    SourceIntegration,
     UpdateCapability,
-    build_default_registry,
+    metadata_for,
 )
 
 
@@ -35,10 +36,19 @@ def resolve_source(
 ) -> SourceRoute:
     """Select one source once; never fall back after a specialized match."""
 
-    active_registry = registry or build_default_registry()
+    if registry is None:
+        from .source_packages import build_runtime_registry
+
+        active_registry = build_runtime_registry()
+    else:
+        active_registry = registry
     resolution = active_registry.resolve(url, context)
     if resolution is not None:
-        return SourceRoute(resolution.adapter, resolution.match, True)
+        specialized = (
+            metadata_for(resolution.adapter).integration
+            is SourceIntegration.SPECIALIZED
+        )
+        return SourceRoute(resolution.adapter, resolution.match, specialized)
 
     fallback = generic or GenericWebSource()
     match = fallback.match(url, context or MatchContext())

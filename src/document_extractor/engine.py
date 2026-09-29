@@ -2329,7 +2329,14 @@ def run(args) -> int:
     source_host = (urlparse(args.url).hostname or "").lower()
     allowed_hosts = {
         host
-        for host in {source_host, *(host.lower() for host in args.allow_host)}
+        for host in {
+            source_host,
+            *(host.lower() for host in args.allow_host),
+            *(
+                host.lower()
+                for host in getattr(source_route.adapter, "network_domains", ())
+            ),
+        }
         if host
     }
     if not Path(args.chrome).is_file():

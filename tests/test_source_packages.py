@@ -6,10 +6,15 @@ import unittest
 from pathlib import Path
 
 from document_extractor.source_packages import (
+    build_runtime_registry,
+    enabled_source_ids,
     inspect_source_package,
     inspect_source_packages,
     package_records,
+    runtime_source_adapters,
+    set_source_package_enabled,
 )
+from document_extractor.sources import SourceIntegration, UpdateCapability, metadata_for
 
 
 def write_manifest(path: Path, **overrides) -> None:
@@ -98,6 +103,79 @@ class SourcePackageTests(unittest.TestCase):
             self.assertTrue(inspections[0].valid)
             self.assertFalse(inspections[1].valid)
             self.assertIn("duplicate source id", inspections[1].error)
+
+    def test_explicit_activation_registers_a_code_free_generic_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_manifest(root / "example.json", capabilities=["url", "update"])
+
+            enabled = set_source_package_enabled(
+                root,
+                "example-reader",
+                enabled=True,
+            )
+            adapter = build_runtime_registry(root).get("example-reader")
+            record = package_records(root)[0]
+
+            self.assertEqual(enabled, ("example-reader",))
+            self.assertEqual(enabled_source_ids(root), ("example-reader",))
+            self.assertIsNotNone(adapter)
+            self.assertEqual(adapter.network_domains, ("reader.example.org", "cdn.example.org"))
+            self.assertIs(metadata_for(adapter).integration, SourceIntegration.GENERIC)
+            self.assertIsInstance(adapter, UpdateCapability)
+            self.assertTrue(record["enabled"])
+            self.assertFalse(record["executable"])
+
+            disabled = set_source_package_enabled(
+                root,
+                "example-reader",
+                enabled=False,
+            )
+
+            self.assertEqual(disabled, ())
+            self.assertIsNone(build_runtime_registry(root).get("example-reader"))
+
+    def test_activation_rejects_unimplemented_capabilities_and_known_domains(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_manifest(
+                root / "search.json",
+                id="search-reader",
+                capabilities=["url", "search"],
+            )
+            write_manifest(
+                root / "known-domain.json",
+                id="known-domain",
+                domains=["sushiscan.net"],
+                permissions={
+                    "network_domains": ["sushiscan.net"],
+                    "browser": True,
+                    "filesystem": "none",
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "does not implement.*search"):
+                set_source_package_enabled(root, "search-reader", enabled=True)
+            with self.assertRaisesRegex(ValueError, "built-in source"):
+                set_source_package_enabled(root, "known-domain", enabled=True)
+
+    def test_candidate_ids_are_reserved_for_the_validated_catalog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "candidate.json"
+            write_manifest(path, id="sushiscan")
+
+            inspection = inspect_source_package(path)
+
+            self.assertFalse(inspection.valid)
+            self.assertIn("conflicts with a built-in source", inspection.error)
+
+    def test_runtime_fails_closed_when_enabled_manifest_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".enabled").write_text("missing-reader\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "missing or invalid"):
+                runtime_source_adapters(root)
 
 
 if __name__ == "__main__":

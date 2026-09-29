@@ -36,6 +36,63 @@ class SourceCliTests(unittest.TestCase):
             self.assertFalse(records[0]["enabled"])
             self.assertFalse(records[0]["executable"])
 
+    def test_extension_can_be_enabled_listed_matched_and_disabled(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            write_manifest(directory / "example.json")
+            enabled_output = StringIO()
+            list_output = StringIO()
+            match_output = StringIO()
+            disabled_output = StringIO()
+
+            with redirect_stdout(enabled_output):
+                enabled_code = main(
+                    [
+                        "extension-enable",
+                        "example-reader",
+                        "--directory",
+                        str(directory),
+                        "--json",
+                    ]
+                )
+            with redirect_stdout(list_output):
+                list_code = main(
+                    ["list", "--sources-directory", str(directory), "--json"]
+                )
+            with redirect_stdout(match_output):
+                match_code = main(
+                    [
+                        "match",
+                        "https://reader.example.org/book/1",
+                        "--sources-directory",
+                        str(directory),
+                        "--json",
+                    ]
+                )
+            with redirect_stdout(disabled_output):
+                disabled_code = main(
+                    [
+                        "extension-disable",
+                        "example-reader",
+                        "--directory",
+                        str(directory),
+                        "--json",
+                    ]
+                )
+
+            enabled = json.loads(enabled_output.getvalue())
+            sources = json.loads(list_output.getvalue())
+            match = json.loads(match_output.getvalue())
+            disabled = json.loads(disabled_output.getvalue())
+            self.assertEqual((enabled_code, list_code, match_code, disabled_code), (0, 0, 0, 0))
+            self.assertTrue(enabled["enabled"])
+            self.assertIn("example-reader", [source["id"] for source in sources])
+            self.assertEqual(match["id"], "example-reader")
+            self.assertEqual(match["integration"], "generic")
+            self.assertFalse(match["specialized"])
+            self.assertEqual(match["adapter_id"], "example-reader")
+            self.assertFalse(disabled["enabled"])
+
     @patch("document_extractor.sources.mangadex._fetch_json", new_callable=FakeApi)
     def test_search_queries_capable_sources_and_returns_stable_json(self, _api):
         output = StringIO()

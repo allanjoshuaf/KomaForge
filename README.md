@@ -349,6 +349,9 @@ komaforge sources families
 komaforge sources candidates
 komaforge sources extensions
 komaforge sources extensions --directory "C:\chemin\vers\les\manifestes" --json
+komaforge sources extension-enable example-reader --directory "C:\chemin\vers\les\manifestes"
+komaforge sources extension-disable example-reader --directory "C:\chemin\vers\les\manifestes"
+komaforge sources list --sources-directory "C:\chemin\vers\les\manifestes"
 komaforge sources match "https://global.manga-up.com/manga/126"
 komaforge sources search "Fullmetal Alchemist" --source mangadex
 komaforge sources popular --source mangadex
@@ -374,11 +377,39 @@ La découverte des parties applique la même règle aux liens de chapitre, contr
 de volume/section et publications à document unique.
 `extensions` inspecte des manifestes JSON tiers locaux avec un schéma borné. Ces
 manifestes déclarent identifiant, domaines, langues, familles, capacités et
-permissions réseau, mais restent désactivés et non exécutables. Les points d’entrée
-Python, accès au système de fichiers, familles inconnues, conflits d’identifiant,
-doublons, liens symboliques et manifestes de plus de 64 Kio sont refusés. Cette
-étape rend les paquets auditables sans prétendre qu’un module Python chargé dans le
-processus principal serait isolé.
+permissions réseau. Ils commencent désactivés et restent toujours non exécutables :
+`extension-enable` active seulement un routage déclaratif vers le moteur générique
+déjà intégré. Les points d’entrée Python, accès au système de fichiers, familles
+inconnues, conflits d’identifiant ou de domaine, doublons, liens symboliques et
+manifestes de plus de 64 Kio sont refusés. Les capacités non encore prises en charge
+(`search` et `browse`) bloquent également l’activation au lieu d’être annoncées à
+tort. La liste `.enabled` est relue au démarrage et un manifeste actif devenu absent
+ou invalide fait échouer le routage explicitement.
+
+Exemple minimal dans `example-reader.json` :
+
+```json
+{
+  "schema_version": 1,
+  "id": "example-reader",
+  "name": "Example Reader",
+  "version": "1.0.0",
+  "languages": ["fr"],
+  "domains": ["reader.example.org"],
+  "families": ["vertical-images"],
+  "capabilities": ["url"],
+  "permissions": {
+    "network_domains": ["reader.example.org", "cdn.example.org"],
+    "browser": true,
+    "filesystem": "none"
+  }
+}
+```
+
+Une source déclarative peut identifier ses URL et autoriser ses CDN, mais elle ne
+peut ni exécuter un module tiers ni contourner les contrôles de couverture. Une
+source intégrée ou un site générique déjà validé garde la priorité : son identifiant
+et ses domaines ne peuvent pas être revendiqués par une extension locale.
 SushiScan et MangaReader.pro peuvent ainsi être marqués compatibles et validés tout
 en restant honnêtement décrits comme des intégrations génériques. La date du dernier
 contrôle live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.
