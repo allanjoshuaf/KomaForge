@@ -233,6 +233,8 @@ komaforge library updates-seen
 komaforge library updates-seen --publication-id IDENTIFIANT_PUBLICATION --part-id IDENTIFIANT_PARTIE
 komaforge library history
 komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
+komaforge doctor
+komaforge doctor --json
 ```
 
 Par défaut, la commande lit `C:\Extractions\Manga` sous Windows et place l’index
@@ -242,6 +244,10 @@ fournit une sortie stable pour une future interface ou un autre outil local.
 Le tableau `library status` réunit dans ce même format stable la santé de l’index,
 les téléchargements disponibles, les publications suivies, les catégories, les
 parties non lues, l’historique et le nombre de travaux dans chaque état de la file.
+`doctor` vérifie sans écriture Python, Chrome, les dépendances requises, le dossier
+de sortie, les versions des trois bases SQLite et les manifestes de sources tiers.
+Un index absent est signalé comme reconstructible et ne constitue pas un échec ;
+une base présente mais incompatible produit un échec explicite.
 
 Lorsqu’une même source possède plusieurs anciens manifestes, la reconstruction
 garde une seule publication canonique. Elle privilégie d’abord la couverture

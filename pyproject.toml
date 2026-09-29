@@ -22,6 +22,7 @@ komaforge = "document_extractor.cli:main"
 komaforge-jobs = "document_extractor.jobs_cli:main"
 komaforge-library = "document_extractor.library_cli:main"
 komaforge-sources = "document_extractor.source_cli:main"
+komaforge-doctor = "document_extractor.doctor_cli:main"
 document-extractor = "document_extractor.cli:main"
 
 [tool.setuptools.packages.find]

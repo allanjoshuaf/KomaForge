@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .doctor import run_doctor
+from .doctor_cli import DEFAULT_CHROME
 from .formats import OUTPUT_FORMATS
 from .job_executor import JobExecutor
 from .jobs import JobAction, JobQueue, JobStatus
@@ -30,7 +32,9 @@ PLATFORM_MESSAGES = {
         "top_library_hint": "Index, recherche, suivi et progression de lecture",
         "top_jobs": "File d’attente",
         "top_jobs_hint": "Inspections et téléchargements persistants",
-        "top_invalid": "Choix invalide. Utilisez un nombre de 1 à 6.",
+        "top_doctor": "Diagnostic local",
+        "top_doctor_hint": "Chrome, dépendances, index, file et extensions",
+        "top_invalid": "Choix invalide. Utilisez un nombre de 1 à 7.",
         "sources_title": "Sources et compatibilité",
         "sources_adapters": "Adaptateurs disponibles",
         "sources_families": "Familles de lecteurs",
@@ -153,7 +157,9 @@ PLATFORM_MESSAGES = {
         "top_library_hint": "Index, search, tracking, and reading progress",
         "top_jobs": "Job queue",
         "top_jobs_hint": "Persistent inspections and downloads",
-        "top_invalid": "Invalid choice. Use a number from 1 to 6.",
+        "top_doctor": "Local diagnostics",
+        "top_doctor_hint": "Chrome, dependencies, index, queue, and extensions",
+        "top_invalid": "Invalid choice. Use a number from 1 to 7.",
         "sources_title": "Sources and compatibility",
         "sources_adapters": "Available adapters",
         "sources_families": "Reader families",
@@ -276,7 +282,9 @@ PLATFORM_MESSAGES = {
         "top_library_hint": "Индекс, поиск, отслеживание и прогресс",
         "top_jobs": "Очередь заданий",
         "top_jobs_hint": "Сохраняемые проверки и загрузки",
-        "top_invalid": "Неверный выбор. Используйте число от 1 до 6.",
+        "top_doctor": "Локальная диагностика",
+        "top_doctor_hint": "Chrome, зависимости, индекс, очередь и расширения",
+        "top_invalid": "Неверный выбор. Используйте число от 1 до 7.",
         "sources_title": "Источники и совместимость",
         "sources_adapters": "Доступные адаптеры",
         "sources_families": "Типы читалок",
@@ -399,7 +407,9 @@ PLATFORM_MESSAGES = {
         "top_library_hint": "索引、搜索、跟踪和阅读进度",
         "top_jobs": "任务队列",
         "top_jobs_hint": "持久化检查和下载",
-        "top_invalid": "选择无效。请输入 1 到 6。",
+        "top_doctor": "本地诊断",
+        "top_doctor_hint": "Chrome、依赖项、索引、队列和扩展",
+        "top_invalid": "选择无效。请输入 1 到 7。",
         "sources_title": "来源与兼容性",
         "sources_adapters": "可用适配器",
         "sources_families": "阅读器类型",
@@ -1227,7 +1237,8 @@ def interactive_hub(
         ui.option(3, _text(ui, "top_sources"), _text(ui, "top_sources_hint"))
         ui.option(4, _text(ui, "top_library"), _text(ui, "top_library_hint"))
         ui.option(5, _text(ui, "top_jobs"), _text(ui, "top_jobs_hint"))
-        ui.option(6, ui.text("menu_quit"))
+        ui.option(6, _text(ui, "top_doctor"), _text(ui, "top_doctor_hint"))
+        ui.option(7, ui.text("menu_quit"))
         choice = ui.prompt(ui.text("choice"), "1") or "1"
         if choice == "1":
             return "guided"
@@ -1240,6 +1251,22 @@ def interactive_hub(
         elif choice == "5":
             jobs_menu(ui, root, queue_path)
         elif choice == "6":
+            report = run_doctor(
+                root=(root or default_output_root()),
+                chrome=DEFAULT_CHROME,
+                sources_directory=default_source_packages_dir(),
+            )
+            ui.section(_text(ui, "top_doctor"))
+            for check in report.checks:
+                level = (
+                    "success"
+                    if check.status == "pass"
+                    else "warning"
+                    if check.status == "warn"
+                    else "error"
+                )
+                ui.notice(f"{check.id} · {check.summary}", level)
+        elif choice == "7":
             raise SystemExit(0)
         else:
             ui.error(_text(ui, "top_invalid"))

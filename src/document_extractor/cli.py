@@ -259,6 +259,10 @@ def main(argv: list[str] | None = None) -> int:
             from .source_cli import main as source_main
 
             return source_main(values[1:])
+        if command == "doctor":
+            from .doctor_cli import main as doctor_main
+
+            return doctor_main(values[1:])
 
     args = parse_args(values)
     from .engine import run

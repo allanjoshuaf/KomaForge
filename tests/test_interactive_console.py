@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from document_extractor.doctor import DoctorCheck, DoctorReport
 from document_extractor.interactive_console import (
     PLATFORM_MESSAGES,
     interactive_hub,
@@ -30,6 +31,23 @@ class InteractiveConsoleTests(unittest.TestCase):
             ui = TerminalUI("fr", stream=StringIO())
             with patch("builtins.input", return_value=choice):
                 self.assertEqual(interactive_hub(ui), expected)
+
+    def test_local_diagnostics_are_visible_from_the_hub(self):
+        stream = StringIO()
+        ui = TerminalUI("fr", stream=stream)
+        report = DoctorReport(
+            (DoctorCheck("chrome", "pass", "Chrome executable found"),)
+        )
+        answers = iter(("6", "1"))
+
+        with patch(
+            "document_extractor.interactive_console.run_doctor",
+            return_value=report,
+        ), patch("builtins.input", side_effect=lambda _prompt: next(answers)):
+            mode = interactive_hub(ui)
+
+        self.assertEqual(mode, "guided")
+        self.assertIn("chrome · Chrome executable found", stream.getvalue())
 
     def test_sources_are_visible_before_returning_to_extraction(self):
         stream = StringIO()

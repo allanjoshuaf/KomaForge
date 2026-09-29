@@ -4,6 +4,9 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- `doctor` fournit un diagnostic local et sans écriture de Chrome, des dépendances,
+  des dossiers, des schémas SQLite et des manifestes tiers depuis la commande ou
+  le menu principal ;
 - les manifestes de sources tierces peuvent être inspectés depuis la commande et
   le menu sans charger de code ; leur schéma refuse notamment les points d’entrée
   exécutables, l’accès aux fichiers et les collisions avec les sources intégrées ;
