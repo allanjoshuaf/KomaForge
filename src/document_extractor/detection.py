@@ -1068,6 +1068,15 @@ def detect_expected_count(page) -> ExpectedCount | None:
             const meta = document.querySelector('meta[name="document-page-count"]');
             if (meta) add(meta.content, 'meta document-page-count', 100);
 
+            const indexedPages = [...document.querySelectorAll('[id^="outer_page_"]')]
+                .map(node => Number.parseInt(node.id.match(/^outer_page_(\d+)$/)?.[1], 10))
+                .filter(Number.isFinite)
+                .sort((a, b) => a - b);
+            if (indexedPages.length >= 2 && indexedPages[0] === 1 &&
+                indexedPages.every((value, index) => value === index + 1)) {
+                add(indexedPages.at(-1), 'conteneurs de pages indexés', 100);
+            }
+
             const manifest = document.querySelector(
                 'script[type="application/json"][data-document-manifest]'
             );
@@ -1244,8 +1253,8 @@ def activate_reading_mode(
                     button.getAttribute('aria-label'), button.getAttribute('title'),
                     button.value, button.id].map(normal).find(Boolean) || '';
                 let score = 0;
-                if (useful.test(displayLabel)) score += 12;
-                if (useful.test(displayLabel) && contextWords.test(searchable)) score += 5;
+                if (strong.test(displayLabel)) score += 12;
+                else if (useful.test(displayLabel) && contextWords.test(searchable)) score += 12;
                 if (/show.?all/.test(displayLabel)) score += 6;
                 results.push({kind: 'button', index,
                     label: displayLabel.slice(0, 100), score});
@@ -1261,7 +1270,8 @@ def activate_reading_mode(
         label = candidate.get("label", "")
         if re.search(
             r"\b(fullscreen|full screen|plein ecran|scroll to (?:top|bottom)|"
-            r"back to top|next|previous|precedent|suivant)\b",
+            r"back to top|next|previous|precedent|suivant|"
+            r"show full (?:title|description|details|text))\b",
             label,
         ):
             return None
@@ -1299,6 +1309,97 @@ def hydrate_lazy_content(
     minimum_steps: int = 20,
 ) -> dict:
     """Fait défiler le lecteur pour matérialiser les pages chargées à la demande."""
+    indexed_containers = page.evaluate(
+        r"""
+        () => [...document.querySelectorAll('[id^="outer_page_"]')]
+            .map(node => ({
+                id: node.id,
+                index: Number.parseInt(node.id.match(/^outer_page_(\d+)$/)?.[1], 10)
+            }))
+            .filter(item => Number.isFinite(item.index))
+            .sort((a, b) => a.index - b.index)
+        """
+    )
+    if (
+        isinstance(indexed_containers, list)
+        and len(indexed_containers) >= 2
+        and indexed_containers[0]["index"] == 1
+        and all(
+            item["index"] == position
+            for position, item in enumerate(indexed_containers, start=1)
+        )
+    ):
+        selected = indexed_containers[:max_steps]
+        captured = page.evaluate(
+            r"""
+            async items => {
+                const captured = [];
+                const delay = milliseconds => new Promise(
+                    resolve => setTimeout(resolve, milliseconds)
+                );
+                const resourceFor = item => {
+                    const container = document.getElementById(item.id);
+                    if (!container) return null;
+                    const images = [...container.querySelectorAll('img')]
+                        .map(image => ({
+                            url: image.dataset.src || image.dataset.lazySrc ||
+                                image.dataset.original || image.dataset.url ||
+                                image.getAttribute('data-lazy') || image.currentSrc ||
+                                image.src || '',
+                            width: image.naturalWidth || Number(image.getAttribute('width')) || 0,
+                            height: image.naturalHeight || Number(image.getAttribute('height')) || 0
+                        }))
+                        .filter(image => image.url &&
+                            !/(loading|placeholder|spinner|transparent|blank)(?:img)?\.(?:gif|png|webp|svg)(?:[?#]|$)/i
+                                .test(image.url))
+                        .sort((a, b) => (b.width * b.height) - (a.width * a.height));
+                    if (!images.length) return null;
+                    return {page: item.index, position: item.index - 1,
+                        dataIndex: item.index, url: images[0].url,
+                        width: images[0].width, height: images[0].height};
+                };
+                const scrollToItem = item => {
+                    const container = document.getElementById(item.id);
+                    if (!container) return;
+                    const top = container.getBoundingClientRect().top + window.scrollY;
+                    window.scrollTo(0, Math.max(0, top - (window.innerHeight / 3)));
+                };
+                for (const item of items) {
+                    scrollToItem(item);
+                    await delay(80);
+                    let resource = resourceFor(item);
+                    if (!resource) {
+                        await delay(80);
+                        resource = resourceFor(item);
+                    }
+                    if (resource) captured.push(resource);
+                }
+                const capturedPages = new Set(captured.map(item => item.page));
+                for (const item of items.filter(item => !capturedPages.has(item.index))) {
+                    scrollToItem(item);
+                    await delay(240);
+                    let resource = resourceFor(item);
+                    if (!resource) {
+                        await delay(240);
+                        resource = resourceFor(item);
+                    }
+                    if (resource) captured.push(resource);
+                }
+                captured.sort((a, b) => a.page - b.page);
+                window.__komaforgeIndexedPageResources = captured;
+                window.scrollTo(0, 0);
+                return captured;
+            }
+            """,
+            selected,
+        )
+        time.sleep(0.25)
+        return {
+            "steps": len(selected),
+            "images_seen": len(captured),
+            "images_ready": len(captured),
+        }
+
     stable_bottom = 0
     stable_expected = 0
     stable_progress = 0
@@ -1318,11 +1419,18 @@ def hydrate_lazy_content(
                     .filter(item => !item.url ||
                         /(loading|placeholder|spinner|transparent|blank)(?:img)?\.(?:gif|png|webp|svg)(?:[?#]|$)/i
                             .test(item.url));
+                const visibleUnresolved = unresolved.filter(item => {
+                    const image = images[item.index];
+                    const style = getComputedStyle(image);
+                    const rect = image.getBoundingClientRect();
+                    return style.display !== 'none' && style.visibility !== 'hidden' &&
+                        rect.width > 0 && rect.height > 0;
+                });
                 return {
                     imageCount: urls.filter(Boolean).length,
                     resolvedCount: urls.length - unresolved.length,
                     uniqueCount: new Set(urls.filter(Boolean)).size,
-                    unresolved: unresolved.map(item => item.index),
+                    unresolved: visibleUnresolved.map(item => item.index),
                     height: Math.max(document.body?.scrollHeight || 0,
                         document.documentElement?.scrollHeight || 0),
                     y: window.scrollY,
@@ -1368,7 +1476,10 @@ def hydrate_lazy_content(
         previous_content = content_signature
         if state["unresolved"]:
             target = state["unresolved"][(steps - 1) % len(state["unresolved"])]
-            page.locator("img").nth(target).scroll_into_view_if_needed(timeout=5_000)
+            page.evaluate(
+                "index => document.images[index]?.scrollIntoView({block: 'center'})",
+                target,
+            )
         else:
             page.evaluate("window.scrollBy(0, Math.max(window.innerHeight * 4, 2400))")
         time.sleep(0.10)
@@ -1446,6 +1557,23 @@ def collect_image_candidates(page, selector: str) -> list[dict]:
         })
         """
     )
+
+
+def collect_indexed_page_container_candidates(page) -> list[dict]:
+    """Return resources captured while walking numbered page containers."""
+
+    resources = page.evaluate(
+        "() => window.__komaforgeIndexedPageResources || []"
+    )
+    if not isinstance(resources, list):
+        return []
+    return [
+        item
+        for item in resources
+        if isinstance(item, dict)
+        and isinstance(item.get("url"), str)
+        and item["url"].strip()
+    ]
 
 
 def collect_chapter_reader_manifest(page) -> list[dict]:

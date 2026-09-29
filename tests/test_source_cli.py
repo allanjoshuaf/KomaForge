@@ -70,7 +70,14 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(
             [source["id"] for source in sources],
-            ["calameo", "manga-up", "ebooks", "mangadex", "generic-web"],
+            [
+                "calameo",
+                "manga-up",
+                "ebooks",
+                "mangadex",
+                "mgu-russian-store",
+                "generic-web",
+            ],
         )
         generic = sources[-1]
         self.assertFalse(generic["specialized"])
@@ -158,15 +165,15 @@ class SourceCliTests(unittest.TestCase):
         status = json.loads(output.getvalue())
 
         self.assertEqual(code, 0)
-        self.assertEqual(status["sources"]["total"], 5)
+        self.assertEqual(status["sources"]["total"], 6)
         self.assertEqual(status["sources"]["by_status"]["validated"], 2)
-        self.assertEqual(status["sources"]["by_status"]["degraded"], 1)
+        self.assertEqual(status["sources"]["by_status"]["degraded"], 2)
         self.assertEqual(status["sources"]["by_status"]["experimental"], 2)
         self.assertEqual(status["sources"]["search"], ["mangadex"])
         self.assertEqual(status["sources"]["browse"], ["mangadex"])
-        self.assertEqual(status["candidates"]["by_status"]["validated"], 2)
+        self.assertEqual(status["candidates"]["by_status"]["validated"], 3)
         self.assertEqual(status["families"]["total"], 4)
-        self.assertEqual(status["families"]["strategies"], 8)
+        self.assertEqual(status["families"]["strategies"], 9)
 
     def test_candidates_are_distinct_from_specialized_sources(self):
         output = StringIO()
@@ -178,18 +185,15 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(
             [candidate["id"] for candidate in candidates],
-            ["sushiscan", "mangareader-pro"],
+            ["sushiscan", "mangareader-pro", "scribd"],
         )
         self.assertTrue(
             all(candidate["adapter_id"] == "generic-web" for candidate in candidates)
         )
         self.assertTrue(
-            all(candidate["last_verified"] == "2026-09-28" for candidate in candidates)
-        )
-        self.assertTrue(
             all(candidate["integration"] == "generic" for candidate in candidates)
         )
-        self.assertTrue(all(candidate["access"] == "full" for candidate in candidates))
+        self.assertEqual(candidates[-1]["last_verified"], "2026-09-30")
 
     def test_sources_can_be_filtered_by_integration_and_access(self):
         source_output = StringIO()
@@ -208,7 +212,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(candidate_code, 0)
         self.assertEqual(
             [source["id"] for source in json.loads(source_output.getvalue())],
-            ["manga-up"],
+            ["manga-up", "mgu-russian-store"],
         )
         self.assertEqual(
             [candidate["id"] for candidate in json.loads(candidate_output.getvalue())],

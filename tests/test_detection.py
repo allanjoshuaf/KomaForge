@@ -67,6 +67,46 @@ class SelectorInputTests(unittest.TestCase):
 
 
 class HydrationTests(unittest.TestCase):
+    def test_hydration_walks_indexed_page_containers_in_order(self):
+        class IndexedPage:
+            def __init__(self):
+                self.scrolled = []
+                self.captured = []
+
+            def evaluate(self, script, arg=None):
+                if "querySelectorAll('[id^=\"outer_page_\"]')" in script:
+                    return [
+                        {"id": f"outer_page_{index}", "index": index}
+                        for index in range(1, 4)
+                    ]
+                if "async items =>" in script:
+                    self.scrolled = [item["id"] for item in arg]
+                    self.captured = [
+                        {
+                            "page": item["index"],
+                            "position": item["index"] - 1,
+                            "dataIndex": item["index"],
+                            "url": f"https://example.test/{item['index']}.webp",
+                            "width": 1200,
+                            "height": 1800,
+                        }
+                        for item in arg
+                    ]
+                    return self.captured
+                raise AssertionError(script)
+
+        page = IndexedPage()
+
+        result = hydrate_lazy_content(page, expected=3)
+
+        self.assertEqual(
+            page.scrolled,
+            ["outer_page_1", "outer_page_2", "outer_page_3"],
+        )
+        self.assertEqual(result["steps"], 3)
+        self.assertEqual(result["images_ready"], 3)
+        self.assertEqual(len(page.captured), 3)
+
     def test_hydration_does_not_stop_while_scroll_position_advances(self):
         class ScrollingPage:
             def __init__(self):

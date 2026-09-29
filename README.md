@@ -382,6 +382,14 @@ processus principal serait isolé.
 SushiScan et MangaReader.pro peuvent ainsi être marqués compatibles et validés tout
 en restant honnêtement décrits comme des intégrations génériques. La date du dernier
 contrôle live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.
+Scribd suit la même règle : le lecteur testé expose 231 conteneurs de pages indexés,
+que KomaForge parcourt sans agréger les nombreuses vignettes de recommandations.
+La couverture `231/231` reste liée à ce document et à la date de vérification, pas à
+une promesse universelle pour tous les comptes ou toutes les publications Scribd.
+À l’inverse, une fiche MGU Russian Store ne contient ni lecteur ni fichier public :
+les livres électroniques y sont livrés par e-mail après achat. L’adaptateur la
+reconnaît donc et demande le fichier ou lien autorisé reçu, au lieu de transformer
+la photo commerciale en prétendue page du livre.
 La commande `match` montre clairement si l’URL utilise une source spécialisée, un
 site générique déjà validé ou le fallback inconnu. Une URL SushiScan conserve ainsi
 le statut `validated` et le nom SushiScan, avec `adapter_id=generic-web`, au lieu

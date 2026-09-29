@@ -2353,6 +2353,9 @@ def run(args) -> int:
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-mode",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
             "--disable-sync",
             "about:blank",
         ]

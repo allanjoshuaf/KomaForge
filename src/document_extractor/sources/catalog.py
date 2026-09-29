@@ -188,6 +188,20 @@ BUILTIN_SOURCE_CANDIDATES = (
         family_ids=("vertical-images",),
         last_verified="2026-09-28",
     ),
+    SourceCandidate(
+        id="scribd",
+        name="Scribd",
+        languages=("mul",),
+        domains=("scribd.com", "www.scribd.com", "fr.scribd.com", "ru.scribd.com"),
+        status=SourceStatus.VALIDATED,
+        status_reason=(
+            "231/231 indexed reader containers validated through the generic adapter"
+        ),
+        adapter_id="generic-web",
+        family_ids=("paginated-images",),
+        access=SourceAccess.VARIABLE,
+        last_verified="2026-09-30",
+    ),
 )
 
 

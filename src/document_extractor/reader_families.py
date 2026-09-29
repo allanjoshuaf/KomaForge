@@ -98,6 +98,23 @@ class DocumentImageStrategy:
         )
 
 
+class IndexedPageContainerStrategy:
+    family_id = "paginated-images"
+    strategy_id = "indexed-page-containers"
+
+    def detect(self, page, expected: int | None) -> ReaderResourceMatch | None:
+        del expected
+        items = detection.collect_indexed_page_container_candidates(page)
+        if not items:
+            return None
+        return ReaderResourceMatch(
+            self.family_id,
+            self.strategy_id,
+            detection._deduplicate(items),
+            "conteneurs de pages indexés",
+        )
+
+
 class GroupedImageStrategy:
     family_id = "vertical-images"
     strategy_id = "grouped-images"
@@ -141,6 +158,7 @@ BUILTIN_RESOURCE_STRATEGIES: tuple[ReaderResourceStrategy, ...] = (
     ChapterManifestStrategy(),
     PaginatedImageStrategy(),
     DocumentImageStrategy(),
+    IndexedPageContainerStrategy(),
     GroupedImageStrategy(),
 )
 

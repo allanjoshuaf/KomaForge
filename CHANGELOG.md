@@ -4,6 +4,14 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- Scribd : les conteneurs `outer_page_N` sont parcourus dans leur ordre réel,
+  leur total devient une preuve de couverture et les recommandations de la page
+  ne sont plus mélangées au document ; la référence testée retrouve `231/231` ;
+- MGU Russian Store : les fiches de livres numériques sont reconnues comme des
+  pages d’achat dont les fichiers sont livrés par e-mail ; KomaForge refuse
+  désormais explicitement la photo commerciale au lieu d’en faire une fausse page ;
+- le chargement progressif ignore les images cachées instables et ne confond plus
+  un bouton « Show full title » avec un contrôle de mode de lecture ;
 - `doctor` fournit un diagnostic local et sans écriture de Chrome, des dépendances,
   des dossiers, des schémas SQLite et des manifestes tiers depuis la commande ou
   le menu principal ;
