@@ -413,10 +413,16 @@ et ses domaines ne peuvent pas être revendiqués par une extension locale.
 SushiScan et MangaReader.pro peuvent ainsi être marqués compatibles et validés tout
 en restant honnêtement décrits comme des intégrations génériques. La date du dernier
 contrôle live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.
-Scribd suit la même règle : le lecteur testé expose 231 conteneurs de pages indexés,
-que KomaForge parcourt sans agréger les nombreuses vignettes de recommandations.
-La couverture `231/231` reste liée à ce document et à la date de vérification, pas à
-une promesse universelle pour tous les comptes ou toutes les publications Scribd.
+Scribd possède désormais son propre adaptateur spécialisé. Le lecteur testé expose
+231 conteneurs de pages indexés ; KomaForge rend ensemble leurs illustrations et
+leur couche de texte, puis libère chaque page déjà capturée pour garder une vitesse
+et une mémoire stables. Les panneaux, barres et recommandations ne sont pas traités
+comme des pages. Si Scribd active son verrou « regarder une publicité pour libérer
+les pages », KomaForge attend sa disparition et refuse d'archiver le contenu flouté.
+L'option `--wait-for-user` permet de terminer le parcours officiel dans Chrome ; un
+VPN ou bloqueur de publicités peut empêcher cette étape. La couverture `231/231`
+reste liée à ce document, à cette session et à la date de vérification, pas à une
+promesse universelle pour tous les comptes ou toutes les publications Scribd.
 À l’inverse, une fiche MGU Russian Store ne contient ni lecteur ni fichier public :
 les livres électroniques y sont livrés par e-mail après achat. L’adaptateur la
 reconnaît donc et demande le fichier ou lien autorisé reçu, au lieu de transformer
@@ -428,7 +434,7 @@ d’hériter du statut expérimental réservé aux sites inconnus. Cette identif
 contacte pas le site et ne masque donc jamais l’échec ultérieur d’un adaptateur
 reconnu. Un statut décrit la fiabilité de l’intégration, pas la complétude d’un livre :
 la couverture reste consignée séparément dans le manifeste.
-Calaméo, Manga UP et eBooks.com alimentent maintenant réellement le moteur par
+Calaméo, Scribd, Manga UP et eBooks.com alimentent maintenant réellement le moteur par
 leurs modèles normalisés de publication et de partie. Une source spécialisée
 reconnue qui échoue produit donc son propre diagnostic au lieu de retomber
 silencieusement sur la détection web générique. Core conserve la navigation, la

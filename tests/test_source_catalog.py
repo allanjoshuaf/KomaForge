@@ -48,11 +48,6 @@ class SourceCatalogTests(unittest.TestCase):
                 self.assertEqual(candidate.integration, SourceIntegration.GENERIC)
                 self.assertEqual(candidate.access, SourceAccess.FULL)
 
-        scribd = candidates["scribd"]
-        self.assertEqual(scribd.status, SourceStatus.VALIDATED)
-        self.assertEqual(scribd.integration, SourceIntegration.GENERIC)
-        self.assertEqual(scribd.access, SourceAccess.VARIABLE)
-
     def test_candidate_lookup_matches_hosts_without_domain_suffix_confusion(self):
         self.assertEqual(
             candidate_for_url("https://sushiscan.net/vagabond-volume-1/").id,
@@ -65,9 +60,8 @@ class SourceCatalogTests(unittest.TestCase):
         self.assertIsNone(
             candidate_for_url("https://sushiscan.net.example.test/chapter/1")
         )
-        self.assertEqual(
-            candidate_for_url("https://fr.scribd.com/document/669933904/example").id,
-            "scribd",
+        self.assertIsNone(
+            candidate_for_url("https://fr.scribd.com/document/669933904/example")
         )
 
     def test_builtin_family_ids_are_unique(self):

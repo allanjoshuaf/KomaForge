@@ -132,6 +132,7 @@ class SourceCliTests(unittest.TestCase):
                 "manga-up",
                 "ebooks",
                 "mangadex",
+                "scribd",
                 "mgu-russian-store",
                 "generic-web",
             ],
@@ -208,7 +209,10 @@ class SourceCliTests(unittest.TestCase):
         families = json.loads(family_output.getvalue())
         self.assertEqual(source_code, 0)
         self.assertEqual(family_code, 0)
-        self.assertEqual([source["id"] for source in sources], ["calameo", "manga-up"])
+        self.assertEqual(
+            [source["id"] for source in sources],
+            ["calameo", "manga-up", "scribd"],
+        )
         self.assertEqual(
             [family["id"] for family in families],
             ["selectable-parts"],
@@ -222,13 +226,13 @@ class SourceCliTests(unittest.TestCase):
         status = json.loads(output.getvalue())
 
         self.assertEqual(code, 0)
-        self.assertEqual(status["sources"]["total"], 6)
-        self.assertEqual(status["sources"]["by_status"]["validated"], 2)
+        self.assertEqual(status["sources"]["total"], 7)
+        self.assertEqual(status["sources"]["by_status"]["validated"], 3)
         self.assertEqual(status["sources"]["by_status"]["degraded"], 2)
         self.assertEqual(status["sources"]["by_status"]["experimental"], 2)
         self.assertEqual(status["sources"]["search"], ["mangadex"])
         self.assertEqual(status["sources"]["browse"], ["mangadex"])
-        self.assertEqual(status["candidates"]["by_status"]["validated"], 3)
+        self.assertEqual(status["candidates"]["by_status"]["validated"], 2)
         self.assertEqual(status["families"]["total"], 4)
         self.assertEqual(status["families"]["strategies"], 9)
 
@@ -242,7 +246,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(
             [candidate["id"] for candidate in candidates],
-            ["sushiscan", "mangareader-pro", "scribd"],
+            ["sushiscan", "mangareader-pro"],
         )
         self.assertTrue(
             all(candidate["adapter_id"] == "generic-web" for candidate in candidates)
@@ -250,7 +254,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertTrue(
             all(candidate["integration"] == "generic" for candidate in candidates)
         )
-        self.assertEqual(candidates[-1]["last_verified"], "2026-09-30")
+        self.assertEqual(candidates[-1]["last_verified"], "2026-09-28")
 
     def test_sources_can_be_filtered_by_integration_and_access(self):
         source_output = StringIO()

@@ -10,9 +10,15 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   sources déclaratives : aucun code externe n’est chargé, leurs domaines sont
   routés vers les familles génériques intégrées et leurs autorisations réseau
   alimentent la liste fermée des hôtes de ressources ;
-- Scribd : les conteneurs `outer_page_N` sont parcourus dans leur ordre réel,
-  leur total devient une preuve de couverture et les recommandations de la page
-  ne sont plus mélangées au document ; la référence testée retrouve `231/231` ;
+- Scribd possède maintenant un adaptateur séparé : chaque conteneur `outer_page_N`
+  est rendu avec sa couche de texte et ses illustrations, les pages déjà capturées
+  sont libérées pour stabiliser la mémoire, et la référence testée retrouve 231
+  pages visuellement lisibles sur 231 ;
+- les verrous Scribd demandant une publicité sont détectés avant et après la capture :
+  le contenu flouté n'est plus annoncé comme une page réussie, et `--wait-for-user`
+  permet de terminer le parcours officiel dans Chrome lorsqu'il est disponible ;
+- `KOMAFORGE_OUTPUT_ROOT` permet à un lanceur de test d'isoler totalement ses
+  extractions de celles de l'application stable ;
 - MGU Russian Store : les fiches de livres numériques sont reconnues comme des
   pages d’achat dont les fichiers sont livrés par e-mail ; KomaForge refuse
   désormais explicitement la photo commerciale au lieu d’en faire une fausse page ;

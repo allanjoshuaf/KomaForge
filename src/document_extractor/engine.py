@@ -1976,6 +1976,12 @@ def extract_chapter(
                     "reading_mode_selector": args.reading_mode_selector,
                     "reading_mode_value": args.reading_mode_value,
                     "document_candidates": document_candidates,
+                    "resource_progress": lambda current, total: print(
+                        f"Rendu du lecteur : page {current}/{total}"
+                    ),
+                    "access_gate_prompt": (
+                        input if getattr(args, "wait_for_user", False) else None
+                    ),
                 },
             ),
         )

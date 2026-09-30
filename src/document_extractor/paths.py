@@ -72,6 +72,9 @@ def application_home() -> Path:
 def default_output_root(base_dir: Path | None = None) -> Path:
     if base_dir is not None:
         return (base_dir / "extractions").resolve()
+    configured = os.environ.get("KOMAFORGE_OUTPUT_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
     if os.name == "nt":
         system_drive = os.environ.get("SystemDrive", "C:").rstrip("\\/")
         return Path(f"{system_drive}\\Extractions\\Manga").resolve()

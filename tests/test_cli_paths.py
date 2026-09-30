@@ -20,6 +20,7 @@ from document_extractor.paths import (
     canonical_source_identity,
     choose_title_output_dir,
     default_output_dir,
+    default_output_root,
     default_profile_dir,
     ensure_output_dir_is_compatible,
     publication_folder_title,
@@ -60,6 +61,15 @@ class PortablePathTests(unittest.TestCase):
             "Россия-моя-любовь-PDF",
         )
         self.assertEqual(safe_slug("量子场论 / 第一章"), "量子场论-第一章")
+
+    def test_output_root_can_be_isolated_for_a_test_launcher(self):
+        with tempfile.TemporaryDirectory() as temp:
+            configured = Path(temp) / "KomaForge-Test"
+            with patch.dict(
+                os.environ,
+                {"KOMAFORGE_OUTPUT_ROOT": str(configured)},
+            ):
+                self.assertEqual(default_output_root(), configured.resolve())
 
     def test_opaque_reader_url_uses_book_title_and_chapter(self):
         url = (

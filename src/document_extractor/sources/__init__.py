@@ -31,6 +31,7 @@ from .generic import GenericWebSource
 from .manga_up import MangaUpSource
 from .mangadex import MangaDexSource
 from .mgu_russian import MguRussianStoreSource
+from .scribd import ScribdSource
 from .registry import (
     AmbiguousSourceError,
     DuplicateSourceError,
@@ -49,6 +50,7 @@ def build_default_registry() -> SourceRegistry:
             MangaUpSource(),
             EBooksSource(),
             MangaDexSource(),
+            ScribdSource(),
             MguRussianStoreSource(),
         )
     )
@@ -67,6 +69,7 @@ __all__ = [
     "MangaUpSource",
     "MangaDexSource",
     "MguRussianStoreSource",
+    "ScribdSource",
     "ReaderFamily",
     "ResourceSet",
     "SearchCapability",
