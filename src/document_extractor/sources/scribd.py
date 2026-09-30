@@ -105,36 +105,91 @@ def _hide_external_overlays(page) -> int:
 def _access_gate_state(page) -> dict[str, object]:
     try:
         state = page.evaluate(
-            """
+            r"""
             () => { // scribd_access_gate
-              const blurred = Array.from(
-                document.querySelectorAll('.outer_page.blurred_page')
-              ).map(node => node.id || 'unknown');
               const markers = [
                 'unlock this document',
                 'unlock the next',
                 'subscribe to read',
                 'start your 30 day free trial'
               ];
-              const visibleText = (document.body?.innerText || '').toLocaleLowerCase();
-              const messages = markers.filter(marker =>
-                visibleText.includes(marker)
+              const pages = Array.from(
+                document.querySelectorAll('[id^="outer_page_"]')
               );
+              const visible = node => {
+                const style = getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                return style.display !== 'none' &&
+                  style.visibility !== 'hidden' &&
+                  Number(style.opacity || 1) > 0.01 &&
+                  rect.width > 0 && rect.height > 0;
+              };
+              const hasBlur = node => {
+                const style = getComputedStyle(node);
+                const effects = `${style.filter || ''} ${style.backdropFilter || ''}`;
+                return /blur\((?!0(?:px)?\))/i.test(effects);
+              };
+              const affected = new Set();
+              const blurred = [];
+              const filtered = [];
+              for (const page of pages) {
+                let node = page;
+                while (node && node !== document.documentElement) {
+                  const className = String(node.className || '').toLocaleLowerCase();
+                  if (
+                    /blurred_page|\bblurred\b|\blocked_page\b|\bpage_locked\b|\bcontent_locked\b/
+                      .test(className)
+                  ) {
+                    affected.add(page.id || 'unknown');
+                    blurred.push(page.id || 'unknown');
+                    break;
+                  }
+                  if (hasBlur(node)) {
+                    affected.add(page.id || 'unknown');
+                    filtered.push(page.id || 'unknown');
+                    break;
+                  }
+                  node = node.parentElement;
+                }
+              }
+              const messages = [];
+              const controls = document.querySelectorAll(
+                'button, a, [role="button"], [role="dialog"], [aria-modal="true"]'
+              );
+              for (const node of controls) {
+                if (!visible(node)) continue;
+                const text = (node.innerText || node.textContent || '')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+                  .toLocaleLowerCase();
+                if (!text || text.length > 500) continue;
+                for (const marker of markers) {
+                  if (text.includes(marker)) messages.push(marker);
+                }
+              }
               return {
-                active: blurred.length > 0 && messages.length > 0,
-                blurred,
-                messages
+                active: affected.size > 0,
+                blurred: Array.from(new Set(blurred)),
+                filtered: Array.from(new Set(filtered)),
+                messages: Array.from(new Set(messages))
               };
             }
             """
         )
-    except Exception:
-        return {"active": False, "blurred": (), "messages": ()}
+    except Exception as exc:
+        raise RuntimeError(
+            "KomaForge n'a pas pu vérifier l'état d'accès du lecteur Scribd; "
+            "la capture est arrêtée pour éviter un faux succès."
+        ) from exc
     if not isinstance(state, dict):
-        return {"active": False, "blurred": (), "messages": ()}
+        raise RuntimeError(
+            "Scribd a renvoyé un état d'accès illisible; la capture est "
+            "arrêtée pour éviter un faux succès."
+        )
     return {
         "active": bool(state.get("active")),
         "blurred": tuple(str(value) for value in state.get("blurred") or ()),
+        "filtered": tuple(str(value) for value in state.get("filtered") or ()),
         "messages": tuple(str(value) for value in state.get("messages") or ()),
     }
 
@@ -149,8 +204,32 @@ def _wait_for_access_gate(
         return False
     try:
         page.wait_for_function(
-            """
-            () => document.querySelectorAll('.outer_page.blurred_page').length === 0
+            r"""
+            () => { // scribd_access_gate_cleared
+              const pages = Array.from(
+                document.querySelectorAll('[id^="outer_page_"]')
+              );
+              const hasBlur = node => {
+                const style = getComputedStyle(node);
+                const effects = `${style.filter || ''} ${style.backdropFilter || ''}`;
+                return /blur\((?!0(?:px)?\))/i.test(effects);
+              };
+              return pages.every(page => {
+                let node = page;
+                while (node && node !== document.documentElement) {
+                  const className = String(node.className || '').toLocaleLowerCase();
+                  if (
+                    /blurred_page|\bblurred\b|\blocked_page\b|\bpage_locked\b|\bcontent_locked\b/
+                      .test(className)
+                  ) {
+                    return false;
+                  }
+                  if (hasBlur(node)) return false;
+                  node = node.parentElement;
+                }
+                return true;
+              });
+            }
             """,
             timeout=12_000,
         )
@@ -167,7 +246,8 @@ def _wait_for_access_gate(
         state = _access_gate_state(page)
         if not state["active"]:
             return True
-    blurred = ", ".join(state["blurred"]) or "page inconnue"
+    affected = tuple(dict.fromkeys((*state["blurred"], *state["filtered"])))
+    blurred = ", ".join(affected) or "page inconnue"
     raise RuntimeError(
         "Scribd limite temporairement l'accès "
         f"({blurred}). La publicité de déverrouillage ne s'est pas chargée ou "
@@ -176,6 +256,46 @@ def _wait_for_access_gate(
         "le déverrouillage officiel dans Chrome; un bloqueur de publicités ou "
         "un VPN filtrant peut empêcher ce parcours."
     )
+
+
+def _wait_for_rendered_page(page, locator) -> None:
+    """Wait until Scribd's fonts, images and target dimensions are usable."""
+
+    try:
+        locator.wait_for(state="visible", timeout=30_000)
+    except Exception:
+        pass
+    try:
+        locator.evaluate(
+            """
+            async node => {
+              if (document.fonts) await document.fonts.ready;
+              const images = Array.from(node.querySelectorAll('img'));
+              await Promise.all(images.map(image => {
+                if (image.complete) return Promise.resolve();
+                return new Promise(resolve => {
+                  image.addEventListener('load', resolve, {once: true});
+                  image.addEventListener('error', resolve, {once: true});
+                  setTimeout(resolve, 5000);
+                });
+              }));
+              let previous = node.getBoundingClientRect();
+              for (let attempt = 0; attempt < 8; attempt += 1) {
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                const current = node.getBoundingClientRect();
+                if (
+                  current.width > 0 && current.height > 0 &&
+                  Math.abs(current.width - previous.width) < 0.5 &&
+                  Math.abs(current.height - previous.height) < 0.5
+                ) return true;
+                previous = current;
+              }
+              return previous.width > 0 && previous.height > 0;
+            }
+            """
+        )
+    except Exception:
+        pass
 
 
 def _capture_page_png(page, locator, cdp_session) -> bytes:
@@ -269,28 +389,35 @@ def _render_resources(
                 page.wait_for_timeout(150)
             except Exception:
                 pass
-            _wait_for_access_gate(page, access_gate_prompt=access_gate_prompt)
-            _hide_external_overlays(page)
-            try:
-                text_length = len((locator.inner_text(timeout=5_000) or "").strip())
-            except Exception:
-                text_length = 0
-            data = _capture_page_png(page, locator, cdp_session)
-            gate_changed_during_capture = _wait_for_access_gate(
-                page,
-                access_gate_prompt=access_gate_prompt,
-            )
-            if gate_changed_during_capture:
-                _hide_external_overlays(page)
-                data = _capture_page_png(page, locator, cdp_session)
-                if _wait_for_access_gate(
+            data = b""
+            text_length = 0
+            for capture_attempt in range(2):
+                _wait_for_access_gate(
                     page,
                     access_gate_prompt=access_gate_prompt,
-                ):
-                    raise RuntimeError(
-                        "L'état d'accès Scribd a changé deux fois pendant la "
-                        f"capture de la page {page_number}; relancez l'extraction."
+                )
+                _hide_external_overlays(page)
+                _wait_for_rendered_page(page, locator)
+                try:
+                    text_length = len(
+                        (locator.inner_text(timeout=5_000) or "").strip()
                     )
+                except Exception:
+                    text_length = 0
+                data = _capture_page_png(page, locator, cdp_session)
+                state_after_capture = _access_gate_state(page)
+                if not state_after_capture["active"]:
+                    break
+                if capture_attempt == 0:
+                    _wait_for_access_gate(
+                        page,
+                        access_gate_prompt=access_gate_prompt,
+                    )
+                    continue
+                raise RuntimeError(
+                    "L'état d'accès Scribd a changé deux fois pendant la "
+                    f"capture de la page {page_number}; relancez l'extraction."
+                )
             if not isinstance(data, bytes) or not data.startswith(b"\x89PNG\r\n\x1a\n"):
                 raise RuntimeError(
                     "Scribd n'a pas produit une image PNG valide pour "

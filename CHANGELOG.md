@@ -14,7 +14,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   est rendu avec sa couche de texte et ses illustrations, les pages déjà capturées
   sont libérées pour stabiliser la mémoire, et la référence testée retrouve 231
   pages visuellement lisibles sur 231 ;
-- les verrous Scribd demandant une publicité sont détectés avant et après la capture :
+- les verrous Scribd demandant une publicité sont détectés avant et après la capture,
+  y compris lorsque le flou est porté par un parent ou injecté pendant le défilement ;
   le contenu flouté n'est plus annoncé comme une page réussie, et `--wait-for-user`
   permet de terminer le parcours officiel dans Chrome lorsqu'il est disponible ;
 - `KOMAFORGE_OUTPUT_ROOT` permet à un lanceur de test d'isoler totalement ses
