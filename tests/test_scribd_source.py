@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import unittest
 
 from document_extractor.application import load_source_publication, resolve_source
@@ -29,10 +30,29 @@ class FakeLocator:
         return None
 
     def inner_text(self, **kwargs):
-        return "текст страницы" if self.page_number != 3 else ""
+        return "текст страницы с дополнительными словами" if self.page_number != 3 else ""
 
     def screenshot(self, **kwargs):
         return PNG + bytes([self.page_number])
+
+    def wait_for(self, **kwargs):
+        return None
+
+    def evaluate(self, script):
+        return {"x": 0, "y": 0, "width": 800, "height": 1100}
+
+
+class FakeCDPSession:
+    def send(self, method, params):
+        return {"data": base64.b64encode(PNG).decode("ascii")}
+
+    def detach(self):
+        return None
+
+
+class FakeContext:
+    def new_cdp_session(self, page):
+        return FakeCDPSession()
 
 
 class FakePage:
@@ -79,6 +99,18 @@ class GatedPage(FakePage):
 
     def wait_for_function(self, script, timeout):
         raise RuntimeError("gate remains active")
+
+
+class VisualStatsPage(FakePage):
+    def __init__(self, ratios):
+        super().__init__()
+        self.context = FakeContext()
+        self.ratios = iter(ratios)
+
+    def evaluate(self, script, *args):
+        if "scribd_png_visual_stats" in script:
+            return {"ratio": next(self.ratios)}
+        return super().evaluate(script)
 
 
 class ScribdSourceTests(unittest.TestCase):
@@ -160,6 +192,37 @@ class ScribdSourceTests(unittest.TestCase):
 
         self.assertEqual(resources.coverage.status, CoverageStatus.COMPLETE)
         self.assertTrue(page.prompted)
+
+    def test_blank_cdp_capture_uses_locator_fallback(self):
+        route = resolve_source(SOURCE_URL)
+        page = VisualStatsPage([0.0, 0.02, 0.0, 0.02, 0.0, 0.02])
+        session = SourceSession(page=page)
+        publication = load_source_publication(
+            route,
+            SourceReference(route.adapter.id, SOURCE_URL, SOURCE_URL),
+            session,
+        )
+
+        resources = route.adapter.get_resources(publication.parts[0], session)
+
+        self.assertEqual(resources.coverage.status, CoverageStatus.COMPLETE)
+        self.assertEqual(
+            [resource.metadata["capture_method"] for resource in resources.resources],
+            ["locator-fallback", "locator-fallback", "cdp"],
+        )
+
+    def test_dom_text_with_persistently_blank_render_is_rejected(self):
+        route = resolve_source(SOURCE_URL)
+        page = VisualStatsPage([0.0, 0.0])
+        session = SourceSession(page=page)
+        publication = load_source_publication(
+            route,
+            SourceReference(route.adapter.id, SOURCE_URL, SOURCE_URL),
+            session,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "visuellement vide"):
+            route.adapter.get_resources(publication.parts[0], session)
 
 
 if __name__ == "__main__":

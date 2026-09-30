@@ -332,6 +332,58 @@ def _capture_page_png(page, locator, cdp_session) -> bytes:
     return base64.b64decode(capture["data"], validate=True)
 
 
+def _png_ink_ratio(page, data: bytes) -> float | None:
+    """Estimate whether a rendered PNG contains visible non-background pixels."""
+
+    encoded = base64.b64encode(data).decode("ascii")
+    try:
+        result = page.evaluate(
+            """
+            async payload => { // scribd_png_visual_stats
+              const image = new Image();
+              image.src = `data:image/png;base64,${payload}`;
+              await image.decode();
+              const size = 160;
+              const canvas = document.createElement('canvas');
+              canvas.width = size;
+              canvas.height = size;
+              const context = canvas.getContext('2d', {willReadFrequently: true});
+              context.fillStyle = '#fff';
+              context.fillRect(0, 0, size, size);
+              context.drawImage(image, 0, 0, size, size);
+              const pixels = context.getImageData(0, 0, size, size).data;
+              let visible = 0;
+              let sampled = 0;
+              const margin = 6;
+              for (let y = margin; y < size - margin; y += 1) {
+                for (let x = margin; x < size - margin; x += 1) {
+                  const offset = (y * size + x) * 4;
+                  const red = pixels[offset];
+                  const green = pixels[offset + 1];
+                  const blue = pixels[offset + 2];
+                  const alpha = pixels[offset + 3];
+                  if (alpha < 16) continue;
+                  sampled += 1;
+                  const darkest = Math.min(red, green, blue);
+                  const lightest = Math.max(red, green, blue);
+                  if (darkest < 225 || lightest - darkest > 24) visible += 1;
+                }
+              }
+              return {ratio: sampled ? visible / sampled : 0};
+            }
+            """,
+            encoded,
+        )
+    except Exception:
+        return None
+    if not isinstance(result, dict):
+        return None
+    try:
+        return float(result["ratio"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _publication_title(page, source_url: str) -> str:
     title = ""
     try:
@@ -391,6 +443,8 @@ def _render_resources(
                 pass
             data = b""
             text_length = 0
+            capture_method = "cdp" if cdp_session is not None else "locator"
+            visual_ink_ratio = None
             for capture_attempt in range(2):
                 _wait_for_access_gate(
                     page,
@@ -405,6 +459,33 @@ def _render_resources(
                 except Exception:
                     text_length = 0
                 data = _capture_page_png(page, locator, cdp_session)
+                if text_length >= 20 and len(data) < 64 * 1024:
+                    visual_ink_ratio = _png_ink_ratio(page, data)
+                else:
+                    visual_ink_ratio = None
+                if (
+                    cdp_session is not None
+                    and text_length >= 20
+                    and visual_ink_ratio is not None
+                    and visual_ink_ratio < 0.0005
+                ):
+                    data = locator.screenshot(
+                        type="png",
+                        scale="css",
+                        timeout=30_000,
+                    )
+                    capture_method = "locator-fallback"
+                    visual_ink_ratio = _png_ink_ratio(page, data)
+                if (
+                    text_length >= 20
+                    and visual_ink_ratio is not None
+                    and visual_ink_ratio < 0.0005
+                ):
+                    raise RuntimeError(
+                        "Scribd expose du texte DOM, mais la page rendue "
+                        f"{page_number} reste visuellement vide. KomaForge "
+                        "refuse d'annoncer cette publication comme complète."
+                    )
                 state_after_capture = _access_gate_state(page)
                 if not state_after_capture["active"]:
                     break
@@ -439,6 +520,8 @@ def _render_resources(
                         "_embedded_content_type": "image/png",
                         "document_index": page_number,
                         "rendered_text_characters": text_length,
+                        "capture_method": capture_method,
+                        "visual_ink_ratio": visual_ink_ratio,
                         "source": "adaptateur Scribd : page DOM rendue complète",
                     },
                 )
@@ -492,12 +575,12 @@ class ScribdSource:
         version="1",
         status=SourceStatus.VALIDATED,
         status_reason=(
-            "231/231 layered pages were rendered with their DOM text; persistent "
-            "advertisement access gates are detected and never archived as pages"
+            "231/231 layered pages were rendered with their DOM text; access "
+            "gates and visually blank promotional containers are rejected"
         ),
         access=SourceAccess.VARIABLE,
         family_ids=("paginated-images",),
-        last_verified="2026-09-30",
+        last_verified="2026-10-01",
     )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:

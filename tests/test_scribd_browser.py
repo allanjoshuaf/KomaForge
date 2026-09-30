@@ -8,6 +8,7 @@ from document_extractor.formats import find_chrome_executable
 from document_extractor.sources.scribd import (
     _access_gate_state,
     _hide_external_overlays,
+    _png_ink_ratio,
 )
 
 
@@ -106,6 +107,27 @@ class ScribdBrowserTests(unittest.TestCase):
             self.page.locator("#reader").evaluate("node => getComputedStyle(node).visibility"),
             "hidden",
         )
+
+    def test_visual_check_distinguishes_blank_and_printed_pages(self):
+        self.page.set_content(
+            """
+            <section id="blank" style="width: 800px; height: 1100px; background: white"></section>
+            <section id="printed" style="width: 800px; height: 1100px; background: white">
+              <h1 style="padding: 100px; color: black">Computer Networking</h1>
+              <p style="padding: 0 100px; color: black">A top-down approach</p>
+            </section>
+            """
+        )
+        blank = self.page.locator("#blank").screenshot(type="png")
+        printed = self.page.locator("#printed").screenshot(type="png")
+
+        blank_ratio = _png_ink_ratio(self.page, blank)
+        printed_ratio = _png_ink_ratio(self.page, printed)
+
+        self.assertIsNotNone(blank_ratio)
+        self.assertIsNotNone(printed_ratio)
+        self.assertLess(blank_ratio, 0.0005)
+        self.assertGreater(printed_ratio, 0.0005)
 
 
 if __name__ == "__main__":
