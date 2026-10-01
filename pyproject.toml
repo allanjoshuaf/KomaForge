@@ -9,7 +9,7 @@ description = "Extracteur CLI de publications web vers CBZ, CBR, PDF, EPUB ou im
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
-authors = [{name = "Ashkel"}]
+authors = [{name = "allanjoshuaf"}]
 keywords = ["manga", "comic", "cbz", "cbr", "epub", "extractor"]
 dependencies = ["playwright>=1.45,<2", "defusedxml>=0.7,<1"]
 

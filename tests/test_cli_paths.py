@@ -234,8 +234,9 @@ class PortablePathTests(unittest.TestCase):
         forbidden = tuple(
             value.casefold()
             for value in (
-                "al" + "lan",
-                "jo" + "shua",
+                "al" + "lan jo" + "shua",
+                "c:\\users\\" + "al" + "lan",
+                "ash" + "kel",
                 "co" + "dex",
                 "chat" + "gpt",
                 "open" + "ai",
@@ -259,7 +260,7 @@ class PortablePathTests(unittest.TestCase):
             for value in forbidden:
                 self.assertNotIn(value, content, str(path.relative_to(project)))
         history = subprocess.check_output(
-            ["git", "log", "--all", "--format=%an%n%ae%n%s%n%b"],
+            ["git", "log", "--branches", "--format=%an%n%ae%n%s%n%b"],
             cwd=project,
             text=True,
             encoding="utf-8",

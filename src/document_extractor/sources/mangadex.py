@@ -49,7 +49,7 @@ def _fetch_json(url: str, parameters: Mapping[str, object] | None = None) -> dic
         target,
         headers={
             "Accept": "application/json",
-            "User-Agent": "KomaForge/0.4.0 (Ashkel)",
+            "User-Agent": "KomaForge/0.4.0",
         },
     )
     try:
