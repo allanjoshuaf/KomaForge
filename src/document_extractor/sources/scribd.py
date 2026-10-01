@@ -27,7 +27,7 @@ from .contracts import (
 )
 
 
-_DOCUMENT_PATH = re.compile(r"^/document/(?P<document_id>[0-9]+)(?:/|$)")
+_DOCUMENT_PATH = re.compile(r"^/(?:document|doc)/(?P<document_id>[0-9]+)(?:/|$)")
 _PAGE_ID = re.compile(r"^outer_page_(?P<number>[0-9]+)$")
 _TITLE_SUFFIX = re.compile(
     r"\s*(?:[-|]\s*)?(?:scribd|pdf)\s*$",
@@ -586,7 +586,7 @@ class ScribdSource:
     def match(self, url: str, context: MatchContext) -> MatchResult:
         del context
         if _document_id(url) is None:
-            return MatchResult.no_match("not a Scribd /document/<id>/ URL")
+            return MatchResult.no_match("not a Scribd /document/<id>/ or /doc/<id>/ URL")
         return MatchResult.recognized(
             "official Scribd document URL",
             confidence=Confidence.HIGH,

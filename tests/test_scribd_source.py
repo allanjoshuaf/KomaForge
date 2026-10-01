@@ -13,6 +13,7 @@ from document_extractor.sources import (
 
 
 SOURCE_URL = "https://fr.scribd.com/document/669933904/example"
+LEGACY_SOURCE_URL = "https://fr.scribd.com/doc/296174008/example"
 PNG = b"\x89PNG\r\n\x1a\n" + b"test"
 
 
@@ -122,6 +123,12 @@ class ScribdSourceTests(unittest.TestCase):
         self.assertIsNone(
             build_default_registry().resolve("https://fr.scribd.com/explore")
         )
+
+    def test_legacy_doc_url_is_routed_to_the_same_adapter(self):
+        route = resolve_source(LEGACY_SOURCE_URL)
+
+        self.assertTrue(route.specialized)
+        self.assertEqual(route.adapter.id, "scribd")
 
     def test_layered_pages_are_rendered_as_complete_embedded_pngs(self):
         route = resolve_source(SOURCE_URL)

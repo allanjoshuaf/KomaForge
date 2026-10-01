@@ -21,6 +21,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 - une page Scribd qui annonce du texte mais produit une image blanche est maintenant
   recapturée par le chemin de secours, puis refusée si elle reste vide ; un dépôt
   publicitaire de 224 conteneurs ne peut donc plus être annoncé comme un livre complet ;
+- les anciennes URL Scribd `/doc/<id>` utilisent le même adaptateur spécialisé et
+  les mêmes contrôles que les URL actuelles `/document/<id>` ;
 - `KOMAFORGE_OUTPUT_ROOT` permet à un lanceur de test d'isoler totalement ses
   extractions de celles de l'application stable ;
 - MGU Russian Store : les fiches de livres numériques sont reconnues comme des
