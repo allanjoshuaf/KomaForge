@@ -49,6 +49,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   conservant les anciens points d'import d'`engine` ;
 - la récupération et la validation EPUB utilisent désormais leur propre service de
   transport, sans dépendre des constantes internes du chemin PDF ;
+- l'observation des réponses PDF, EPUB et JSON du lecteur ainsi que le calcul du
+  total annoncé vivent maintenant dans un service de métadonnées réseau testable ;
 - la découverte des liens de chapitre, contrôles de volume et documents uniques
   suit désormais le même contrat de stratégie, hors de l’adaptateur web générique ;
 - la liste des nouveautés expose maintenant l’état réel de leur téléchargement,
