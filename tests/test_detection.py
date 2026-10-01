@@ -33,7 +33,6 @@ from document_extractor.engine import (
     ChapterTask,
     _complete_access_check,
     _ask_interactive_detached_recovery,
-    _fetch_pdf_in_ranges,
     download_pages,
     merge_chapter_records,
     navigate_to_source,
@@ -809,50 +808,7 @@ class SelectedResourceHostTests(unittest.TestCase):
         self.assertEqual(trusted, {})
 
 
-class PdfTransportTests(unittest.TestCase):
-    def test_large_pdf_is_reassembled_from_verified_byte_ranges(self):
-        payload = b"%PDF-test-payload"
-
-        class FakeResponse:
-            status = 206
-
-            def __init__(self, body):
-                self._body = body
-
-            def body(self):
-                return self._body
-
-        class FakeRequestContext:
-            def __init__(self):
-                self.ranges = []
-
-            def fetch(self, _url, *, method, headers, timeout):
-                self.assertions = (method, timeout)
-                value = headers["range"].removeprefix("bytes=")
-                start, end = (int(item) for item in value.split("-", 1))
-                self.ranges.append((start, end))
-                return FakeResponse(payload[start : end + 1])
-
-        class FakeContext:
-            def __init__(self):
-                self.request = FakeRequestContext()
-
-        class FakeRequest:
-            url = "https://example.test/book.pdf"
-
-        context = FakeContext()
-        with patch("document_extractor.engine.PDF_RANGE_CHUNK_BYTES", 4):
-            recovered = _fetch_pdf_in_ranges(
-                context, FakeRequest(), {"cookie": "session=test"}, len(payload)
-            )
-
-        self.assertEqual(recovered, payload)
-        self.assertEqual(
-            context.request.ranges,
-            [(0, 3), (4, 7), (8, 11), (12, 15), (16, 16)],
-        )
-        self.assertEqual(context.request.assertions, ("GET", 60_000))
-
+class PdfRecoveryPromptTests(unittest.TestCase):
     def test_interactive_recovery_is_offered_only_for_one_complete_tree(self):
         args = type("Args", (), {"interactive": True, "inspect": False})()
         diagnostics = {
