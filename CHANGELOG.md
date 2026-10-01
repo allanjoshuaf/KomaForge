@@ -41,6 +41,9 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 - les lecteurs Blob, manifestes de chapitre, paginés et verticaux sont maintenant
   routés par des stratégies de famille isolées et testables, hors de l’orchestrateur
   de détection monolithique ;
+- l'inspection et la récupération explicitement autorisée des arbres PDF détachés
+  vivent maintenant dans un service structurel indépendant, avec leurs tests
+  unitaires exécutés sans démarrer les scénarios navigateur ;
 - la découverte des liens de chapitre, contrôles de volume et documents uniques
   suit désormais le même contrat de stratégie, hors de l’adaptateur web générique ;
 - la liste des nouveautés expose maintenant l’état réel de leur téléchargement,
