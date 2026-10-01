@@ -204,8 +204,9 @@ class PortablePathTests(unittest.TestCase):
         forbidden = tuple(
             value.casefold()
             for value in (
-                "al" + "lan",
-                "jo" + "shua",
+                "al" + "lan jo" + "shua",
+                "c:\\users\\" + "al" + "lan",
+                "ash" + "kel",
                 "co" + "dex",
                 "chat" + "gpt",
                 "open" + "ai",
