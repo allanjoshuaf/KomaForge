@@ -47,6 +47,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 - le téléchargement PDF dans la session du navigateur, sa reprise par segments et
   sa validation vivent maintenant dans un service de transport séparé, tout en
   conservant les anciens points d'import d'`engine` ;
+- la récupération et la validation EPUB utilisent désormais leur propre service de
+  transport, sans dépendre des constantes internes du chemin PDF ;
 - la découverte des liens de chapitre, contrôles de volume et documents uniques
   suit désormais le même contrat de stratégie, hors de l’adaptateur web générique ;
 - la liste des nouveautés expose maintenant l’état réel de leur téléchargement,

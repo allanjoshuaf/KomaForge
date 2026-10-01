@@ -43,10 +43,10 @@ from .formats import (
     create_pdf_from_epub_bytes,
     create_selected_output,
     file_sha256,
-    inspect_epub,
     remove_validated_work_directory,
     render_pdf_bytes_to_images,
 )
+from .epub_transport import fetch_browser_epub as _fetch_browser_epub
 from .legacy_bridge import normalize_legacy_manifest
 from .models import Confidence, Part, Publication, ResourceKind
 from .paths import (
@@ -58,8 +58,6 @@ from .paths import (
 )
 from .pdf_structure import recover_detached_page_tree
 from .pdf_transport import (
-    PDF_BODY_REUSE_MAX_BYTES,
-    PDF_REQUEST_TIMEOUT_MS,
     fetch_browser_pdf as _fetch_browser_pdf,
     fetch_pdf_in_ranges as _fetch_pdf_in_ranges,
 )
@@ -985,66 +983,6 @@ def _wait_for_publication_total(
         if time.monotonic() >= deadline:
             return None
         time.sleep(0.25)
-
-
-def _fetch_browser_epub(
-    context,
-    candidate: dict,
-    language: str = "fr",
-) -> tuple[bytes, dict]:
-    """Récupère et valide l'EPUB observé dans la session réelle du lecteur."""
-    request = candidate["request"]
-    data = b""
-    observed_response = candidate.get("response")
-    content_length = int(candidate.get("content_length") or 0)
-    if observed_response is not None and 0 < content_length <= PDF_BODY_REUSE_MAX_BYTES:
-        try:
-            if not observed_response.ok:
-                raise RuntimeError(
-                    f"Ressource EPUB inaccessible : HTTP {observed_response.status}"
-                )
-            data = observed_response.body()
-            if data:
-                print(rt(language, "epub_loaded"))
-        except Exception:
-            data = b""
-
-    if not data:
-        headers = {
-            key: value
-            for key, value in request.all_headers().items()
-            if not key.startswith(":")
-            and key.lower()
-            not in {"accept-encoding", "connection", "content-length", "host", "range"}
-        }
-        last_error: Exception | None = None
-        for attempt in range(1, 3):
-            try:
-                response = context.request.fetch(
-                    request.url,
-                    method="GET",
-                    headers=headers,
-                    timeout=PDF_REQUEST_TIMEOUT_MS,
-                )
-                if not response.ok:
-                    raise RuntimeError(
-                        f"Ressource EPUB inaccessible : HTTP {response.status}"
-                    )
-                data = response.body()
-                break
-            except Exception as exc:
-                last_error = exc
-                print(f"Récupération EPUB {attempt}/2 échouée : {exc}")
-        if not data:
-            raise RuntimeError(
-                "La ressource EPUB n'a pas pu être récupérée après deux "
-                f"tentatives : {last_error}"
-            )
-    try:
-        info = inspect_epub(data)
-    except Exception as exc:
-        raise RuntimeError(f"La ressource EPUB détectée est invalide : {exc}") from exc
-    return data, info
 
 
 def _direct_document_candidate(candidates: list[dict], page, output_format: str) -> dict | None:

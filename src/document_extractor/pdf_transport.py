@@ -162,4 +162,3 @@ def fetch_browser_pdf(context, candidate: dict) -> tuple[bytes, int, dict]:
     if page_count < 1:
         raise RuntimeError("La ressource PDF détectée ne contient aucune page.")
     return data, page_count, diagnostics
-
