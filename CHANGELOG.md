@@ -53,6 +53,8 @@ Toutes les modifications notables de KomaForge sont consignées ici.
   total annoncé vivent maintenant dans un service de métadonnées réseau testable ;
 - le téléchargement des pages, sa reprise vérifiée, la liste fermée des hôtes et le
   repli navigateur sont isolés dans un service dédié, sans changer l'API historique ;
+- le cycle de vie du profil Chrome, l'attente de son interface de contrôle et la
+  navigation avec récupération SSL bornée sont regroupés dans un service navigateur ;
 - la découverte des liens de chapitre, contrôles de volume et documents uniques
   suit désormais le même contrat de stratégie, hors de l’adaptateur web générique ;
 - la liste des nouveautés expose maintenant l’état réel de leur téléchargement,
