@@ -41,12 +41,11 @@ from .detection import (
     wait_for_access_interstitial,
     wait_for_reader_readiness,
 )
+from .document_output import produce_epub_document, produce_pdf_document
 from .formats import (
-    create_pdf_from_epub_bytes,
     create_selected_output,
     file_sha256,
     remove_validated_work_directory,
-    render_pdf_bytes_to_images,
 )
 from .epub_transport import fetch_browser_epub as _fetch_browser_epub
 from .legacy_bridge import normalize_legacy_manifest
@@ -539,11 +538,8 @@ def _use_direct_pdf(
     else:
         artifact_dir = output_dir
         output_stem = getattr(args, "output_stem", "document")
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    if selected_output_format == "pdf":
-        artifact = artifact_dir / f"{output_stem}.pdf"
-        artifact.write_bytes(data)
-    else:
+    images_dir = None
+    if selected_output_format != "pdf":
         images_dir = (
             artifact_dir / output_stem
             if selected_output_format == "images" and publication_is_work
@@ -553,29 +549,33 @@ def _use_direct_pdf(
             if publication_is_work
             else work_dir / "images"
         )
-        print(
-            "Conversion demandée : rendu des pages PDF en PNG à 200 ppp "
-            f"pour produire {selected_output_format.upper()}."
-        )
-        rendered = render_pdf_bytes_to_images(data, images_dir, dpi=200)
-        artifact = create_selected_output(
-            selected_output_format,
-            rendered,
-            artifact_dir,
-            chapter.title,
-            chrome_executable=Path(args.chrome),
-            output_stem=output_stem,
-        )
-        record["resource_unit"] = "rendered_pdf_page"
-        record["render_dpi"] = 200
-    record["saved"] = page_count
+    produced = produce_pdf_document(
+        data=data,
+        page_count=page_count,
+        selected_output_format=selected_output_format,
+        artifact_dir=artifact_dir,
+        output_stem=output_stem,
+        title=chapter.title,
+        chrome_executable=Path(args.chrome),
+        images_dir=images_dir,
+        recovered_from_detached_tree=recovery is not None and not incomplete,
+    )
+    record["saved"] = produced.saved
+    record["quality"] = produced.quality
+    record["resource_unit"] = produced.resource_unit
+    if produced.render_dpi is not None:
+        record["render_dpi"] = produced.render_dpi
     record["artifact"] = {
-        "path": _artifact_manifest_path(artifact, output_dir),
-        "sha256": file_sha256(artifact) if artifact.is_file() else None,
-        "source_sha256": hashlib.sha256(data).hexdigest(),
+        "path": _artifact_manifest_path(produced.artifact, output_dir),
+        "sha256": (
+            file_sha256(produced.artifact)
+            if produced.artifact.is_file()
+            else None
+        ),
+        "source_sha256": produced.source_sha256,
     }
     record["status"] = "complete"
-    print(rt(language, "result", value=artifact))
+    print(rt(language, "result", value=produced.artifact))
     return record, not incomplete
 
 
@@ -694,76 +694,47 @@ def _use_direct_epub(
     else:
         artifact_dir = output_dir
         output_stem = getattr(args, "output_stem", "document")
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-
-    page_count: int | None = None
-    if selected_output_format == "epub":
-        artifact = artifact_dir / f"{output_stem}.epub"
-        artifact.write_bytes(data)
-        record["quality"] = "original EPUB bytes preserved; no re-encoding"
-        record["saved"] = spine_count
-    else:
-        converted_pdf = work_dir / output_stem / "source-rendered.pdf"
-        converted_pdf.parent.mkdir(parents=True, exist_ok=True)
-        print(
-            "Conversion EPUB : impression des sections XHTML avec Chrome "
-            "en conservant texte, images et mise en forme."
+    converted_pdf = work_dir / output_stem / "source-rendered.pdf"
+    images_dir = None
+    if selected_output_format not in {"epub", "pdf"}:
+        images_dir = (
+            artifact_dir / output_stem
+            if selected_output_format == "images" and publication_is_work
+            else output_dir / "images"
+            if selected_output_format == "images"
+            else work_dir / output_stem / "images"
         )
-        converted_pdf, conversion = create_pdf_from_epub_bytes(
-            data,
-            converted_pdf,
-            Path(args.chrome),
-        )
-        page_count = int(conversion["page_count"])
-        print(f"Pages produites après mise en pages EPUB : {page_count}")
-        if selected_output_format == "pdf":
-            artifact = artifact_dir / f"{output_stem}.pdf"
-            converted_pdf.replace(artifact)
-            record["quality"] = (
-                "reflowable EPUB printed to vector/text PDF with Chrome"
-            )
-        else:
-            images_dir = (
-                artifact_dir / output_stem
-                if selected_output_format == "images" and publication_is_work
-                else output_dir / "images"
-                if selected_output_format == "images"
-                else work_dir / output_stem / "images"
-            )
-            rendered = render_pdf_bytes_to_images(
-                converted_pdf.read_bytes(), images_dir, dpi=200
-            )
-            converted_pdf.unlink(missing_ok=True)
-            if selected_output_format == "images":
-                for empty_dir in (converted_pdf.parent, work_dir):
-                    try:
-                        empty_dir.rmdir()
-                    except OSError:
-                        pass
-            artifact = create_selected_output(
-                selected_output_format,
-                rendered,
-                artifact_dir,
-                chapter.title,
-                chrome_executable=Path(args.chrome),
-                output_stem=output_stem,
-            )
-            record["resource_unit"] = "rendered_epub_page"
-            record["render_dpi"] = 200
-            record["quality"] = (
-                "EPUB laid out with Chrome then rasterized losslessly to PNG "
-                f"at 200 dpi for {selected_output_format}"
-            )
-        record["detected"] = page_count
-        record["saved"] = page_count
+    produced = produce_epub_document(
+        data=data,
+        spine_count=spine_count,
+        selected_output_format=selected_output_format,
+        artifact_dir=artifact_dir,
+        output_stem=output_stem,
+        title=chapter.title,
+        chrome_executable=Path(args.chrome),
+        converted_pdf=converted_pdf,
+        images_dir=images_dir,
+        cleanup_dirs=(converted_pdf.parent, work_dir),
+    )
+    record["saved"] = produced.saved
+    record["quality"] = produced.quality
+    record["resource_unit"] = produced.resource_unit
+    if produced.detected is not None:
+        record["detected"] = produced.detected
+    if produced.render_dpi is not None:
+        record["render_dpi"] = produced.render_dpi
 
     record["artifact"] = {
-        "path": _artifact_manifest_path(artifact, output_dir),
-        "sha256": file_sha256(artifact) if artifact.is_file() else None,
-        "source_sha256": hashlib.sha256(data).hexdigest(),
+        "path": _artifact_manifest_path(produced.artifact, output_dir),
+        "sha256": (
+            file_sha256(produced.artifact)
+            if produced.artifact.is_file()
+            else None
+        ),
+        "source_sha256": produced.source_sha256,
     }
     record["status"] = "complete"
-    print(rt(language, "result", value=artifact))
+    print(rt(language, "result", value=produced.artifact))
     return record, True
 
 
