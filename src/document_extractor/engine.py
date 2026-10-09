@@ -43,7 +43,6 @@ from .detection import (
 )
 from .document_output import produce_epub_document, produce_pdf_document
 from .formats import (
-    create_selected_output,
     file_sha256,
     remove_validated_work_directory,
 )
@@ -57,6 +56,7 @@ from .page_download import (
     trusted_selected_resource_hosts,
     valid_existing_file,
 )
+from .page_output import produce_page_document
 from .paths import (
     canonical_source_identity,
     choose_title_output_dir,
@@ -1090,81 +1090,53 @@ def extract_chapter(
         )
         output_stem = getattr(args, "output_stem", "document")
 
-    images_dir.mkdir(parents=True, exist_ok=True)
-    chapter_hosts = set(allowed_hosts)
-    chapter_host = (urlparse(page.url).hostname or "").lower()
-    if chapter_host:
-        chapter_hosts.add(chapter_host)
-    trusted_hosts = trusted_selected_resource_hosts(
-        pages,
-        page.url,
-        chapter_hosts,
-    )
-    if trusted_hosts:
-        chapter_hosts.update(trusted_hosts)
-        for host, count in sorted(trusted_hosts.items()):
-            print(
-                "CDN de pages autorisé automatiquement : "
-                f"{host} ({count}/{len(pages)} ressources sélectionnées)"
-            )
-    results, missing = download_pages(
+    produced = produce_page_document(
         context=context,
         pages=pages,
         images_dir=images_dir,
+        artifact_dir=artifact_dir,
         source_url=page.url,
-        allowed_hosts=chapter_hosts,
+        page_url=page.url,
+        allowed_hosts=allowed_hosts,
         retries=args.retries,
         max_image_bytes=args.max_image_mb * 1024 * 1024,
         watermark_policy=args.watermarks,
         watermark_texts=args.watermark_text,
         workers=args.workers,
-    )
-    removed_total = sum(
-        int(item.get("watermarks_removed") or 0) for item in results
-    )
-    record.update(
-        {
-            "saved": len(results),
-            "missing": missing,
-            "watermarks_removed": removed_total,
-            "pages": results,
-            "quality": (
-                "SVG source preserved except exact watermark text; no resize"
-                if removed_total
-                else "original page bytes preserved; no resize"
-            ),
-        }
-    )
-    if missing:
-        record["status"] = "incomplete"
-        print(f"Extraction incomplète : {len(missing)} page(s) manquante(s).")
-        return page, record, False
-
-    ordered = [images_dir / item["file"] for item in results]
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    artifact = create_selected_output(
-        selected_output_format,
-        ordered,
-        artifact_dir,
-        chapter.title,
+        selected_output_format=selected_output_format,
+        title=chapter.title,
         chrome_executable=Path(args.chrome),
         output_stem=output_stem,
     )
-    if (
-        selected_output_format in {"cbz", "cbr"}
-        and ordered
-        and all(path.suffix.lower() == ".svg" for path in ordered)
-    ):
-        record["quality"] = (
-            "SVG source rendered as lossless PNG at its native viewBox size "
-            "for CBZ/CBR reader compatibility"
+    record.update(
+        {
+            "saved": len(produced.pages),
+            "missing": produced.missing,
+            "watermarks_removed": produced.watermarks_removed,
+            "pages": produced.pages,
+            "quality": produced.quality,
+        }
+    )
+    if produced.missing:
+        record["status"] = "incomplete"
+        print(
+            f"Extraction incomplète : {len(produced.missing)} "
+            "page(s) manquante(s)."
         )
+        return page, record, False
+
+    if produced.artifact is None:
+        raise RuntimeError("La production des pages n'a créé aucun artefact.")
     record["artifact"] = {
-        "path": _artifact_manifest_path(artifact, output_dir),
-        "sha256": file_sha256(artifact) if artifact.is_file() else None,
+        "path": _artifact_manifest_path(produced.artifact, output_dir),
+        "sha256": (
+            file_sha256(produced.artifact)
+            if produced.artifact.is_file()
+            else None
+        ),
     }
     record["status"] = "complete"
-    print(rt(language, "result", value=artifact))
+    print(rt(language, "result", value=produced.artifact))
     return page, record, True
 
 
