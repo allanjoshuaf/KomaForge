@@ -580,7 +580,7 @@ class ScribdSource:
         ),
         access=SourceAccess.VARIABLE,
         family_ids=("paginated-images",),
-        last_verified="2026-10-01",
+        last_verified="2026-10-09",
     )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:

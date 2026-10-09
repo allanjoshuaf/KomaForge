@@ -148,7 +148,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertTrue(generic["capabilities"]["resources"])
 
         self.assertEqual(sources[0]["status"], "validated")
-        self.assertEqual(sources[0]["last_verified"], "2026-09-28")
+        self.assertEqual(sources[0]["last_verified"], "2026-10-09")
         self.assertEqual(sources[1]["languages"], ["en"])
         self.assertEqual(sources[1]["access"], "source_limited")
         self.assertEqual(sources[2]["status"], "degraded")
@@ -254,7 +254,7 @@ class SourceCliTests(unittest.TestCase):
         self.assertTrue(
             all(candidate["integration"] == "generic" for candidate in candidates)
         )
-        self.assertEqual(candidates[-1]["last_verified"], "2026-09-28")
+        self.assertEqual(candidates[-1]["last_verified"], "2026-10-09")
 
     def test_sources_can_be_filtered_by_integration_and_access(self):
         source_output = StringIO()

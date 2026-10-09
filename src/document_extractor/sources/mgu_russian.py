@@ -35,7 +35,7 @@ class MguRussianStoreSource:
         ),
         access=SourceAccess.SOURCE_LIMITED,
         family_ids=("direct-document",),
-        last_verified="2026-09-30",
+        last_verified="2026-10-09",
     )
 
     def match(self, url: str, context: MatchContext) -> MatchResult:

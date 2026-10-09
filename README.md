@@ -43,6 +43,23 @@ site.
   images intégrées sous forme d'URI `data:` ;
 - inventaire automatique des balises, classes, textes et filigranes SVG.
 
+## Architecture interne
+
+KomaForge sépare désormais trois responsabilités :
+
+- **Core** orchestre une inspection ou une extraction, applique les preuves de
+  couverture et refuse les résultats incomplets ;
+- **Sources** contient les adaptateurs spécialisés et le moteur générique, avec
+  des capacités facultatives de recherche, catalogue et mise à jour ;
+- **Library** indexe les manifestes locaux, les suivis, la progression de lecture
+  et la file persistante sans devenir la source de vérité des fichiers.
+
+Les modèles normalisés `Work`, `Publication`, `Part`, `Resource` et `Coverage`
+relient ces couches. La planification des parties, la production des documents
+directs, la production des archives d'images et la mise à jour des manifestes sont
+isolées de `engine.py`. Ainsi, ajouter un adaptateur ne demande pas d'ajouter une
+nouvelle branche propre au site dans l'orchestrateur central.
+
 ## Qualité et intégrité
 
 KomaForge ne convertit pas une image JPEG en PNG ou inversement pour le simple

@@ -175,7 +175,7 @@ BUILTIN_SOURCE_CANDIDATES = (
         status_reason="241/241 live baseline validated through the generic adapter",
         adapter_id="generic-web",
         family_ids=("vertical-images",),
-        last_verified="2026-09-28",
+        last_verified="2026-10-09",
     ),
     SourceCandidate(
         id="mangareader-pro",
@@ -186,7 +186,7 @@ BUILTIN_SOURCE_CANDIDATES = (
         status_reason="complete live baseline validated through the generic adapter",
         adapter_id="generic-web",
         family_ids=("vertical-images",),
-        last_verified="2026-09-28",
+        last_verified="2026-10-09",
     ),
 )
 

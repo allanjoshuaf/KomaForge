@@ -4,6 +4,14 @@ Toutes les modifications notables de KomaForge sont consignées ici.
 
 ## Non publié
 
+- la production des PDF/EPUB directs et celle des archives issues de pages image
+  vivent maintenant dans des services séparés de l'orchestrateur principal ;
+- la planification des chapitres, volumes et documents ainsi que l'état des
+  manifestes (`complete`, `incomplete`, `limited_by_source`) sont centralisés dans
+  des modules indépendants et couverts par des tests dédiés ;
+- les validations réelles du 9 octobre confirment Calaméo `144/144`, SushiScan
+  `241/241`, MangaReader.pro `109/109`, Scribd `231/231`, la récupération PDF
+  eBooks `393/393` et le refus correct de l'aperçu EPUB `11/62` ;
 - les titres en alphabet cyrillique, chinois et autres écritures Unicode gardent
   désormais un nom de dossier lisible au lieu de se réduire à quelques chiffres ;
 - les manifestes tiers sûrs peuvent maintenant être activés explicitement comme
