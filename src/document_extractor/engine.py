@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import subprocess
 import tempfile
 import time
 from dataclasses import replace
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -86,6 +84,13 @@ from .reader_metadata import (
     remember_reader_metadata as _remember_reader_metadata,
     wait_for_publication_total as _wait_for_publication_total,
 )
+from .publication_manifest import (
+    create_publication_manifest,
+    flatten_single_document_manifest,
+    select_stored_chapter_records,
+    update_manifest_progress,
+    write_json,
+)
 from .sources import SourceAdapter, SourceReference, SourceSession
 from .terminal_ui import rt
 
@@ -102,11 +107,6 @@ def _complete_access_check(page, args) -> dict:
             "demande une action, puis appuyez sur Entrée..."
         )
     return wait_for_access_interstitial(page)
-
-
-def write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _artifact_manifest_path(artifact: Path, output_dir: Path) -> str:
@@ -1353,38 +1353,34 @@ def run(args) -> int:
                 if publication_is_work and not args.inspect
                 else []
             )
-            manifest = {
-                "source_url": args.url,
-                "provider": provider_name,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "output_format": args.output_format,
-                "watermark_policy": args.watermarks,
-                "watermark_texts": args.watermark_text,
-                "publication": {
-                    "type": publication_type,
-                    "title": output_title,
-                    "source_title": publication_title,
-                    "source_metadata": (
-                        dict(adapter_publication.metadata)
-                        if adapter_publication is not None
-                        else {}
-                    ),
-                    "part_kind": part_kind,
-                    "part_count": len(all_chapters),
-                    "selected_part_count": len(selected_chapters),
-                    "chapter_count": len(all_chapters),
-                    "selected_chapter_count": len(selected_chapters),
-                    "chapters": [],
-                },
-            }
-            if adapter_publication and catalog_coverage:
-                manifest["publication"]["availability"] = {
-                    "catalog_part_count": catalog_coverage.expected,
-                    "accessible_part_count": catalog_coverage.available,
-                    "selected_accessible_part_count": len(selected_chapters),
-                    "access_limited": source_limited,
-                    "source": catalog_coverage.evidence,
-                }
+            manifest = create_publication_manifest(
+                source_url=args.url,
+                provider=provider_name,
+                requested_output_format=args.output_format,
+                watermark_policy=args.watermarks,
+                watermark_texts=args.watermark_text,
+                publication_type=publication_type,
+                output_title=output_title,
+                source_title=publication_title,
+                source_metadata=(
+                    dict(adapter_publication.metadata)
+                    if adapter_publication is not None
+                    else {}
+                ),
+                part_kind=part_kind,
+                part_count=len(all_chapters),
+                selected_part_count=len(selected_chapters),
+                catalog_part_count=(
+                    catalog_coverage.expected if catalog_coverage else None
+                ),
+                accessible_part_count=(
+                    catalog_coverage.available if catalog_coverage else None
+                ),
+                source_limited=source_limited,
+                availability_source=(
+                    catalog_coverage.evidence if catalog_coverage else None
+                ),
+            )
             completed = True
             chapter_records: list[dict] = []
             for position, chapter in enumerate(selected_chapters):
@@ -1443,66 +1439,36 @@ def run(args) -> int:
                         manifest["output_format"] = record_output_format
                     elif current_output_format != record_output_format:
                         manifest["output_format"] = "mixed"
-                stored_chapters = merge_chapter_records(
+                stored_chapters = select_stored_chapter_records(
                     existing_chapter_records,
                     chapter_records,
+                    publication_is_work=publication_is_work,
+                    inspect=args.inspect,
                 )
-                manifest["publication"]["chapters"] = stored_chapters
-                manifest["publication"]["selected_part_count"] = len(stored_chapters)
-                manifest["publication"]["selected_chapter_count"] = len(stored_chapters)
-                if "availability" in manifest["publication"]:
-                    manifest["publication"]["availability"][
-                        "selected_accessible_part_count"
-                    ] = len(stored_chapters)
                 if publication_is_work and not args.inspect:
-                    work_complete = (
-                        completed
-                        and len(stored_chapters) >= len(all_chapters)
-                        and all(
-                            item.get("status") == "complete"
-                            for item in stored_chapters
-                        )
-                    )
-                    manifest["publication"]["status"] = (
-                        "limited_by_source"
-                        if work_complete and source_limited
-                        else "complete"
-                        if work_complete
-                        else "incomplete"
+                    update_manifest_progress(
+                        manifest,
+                        stored_chapters,
+                        completed=completed,
+                        publication_is_work=True,
+                        all_part_count=len(all_chapters),
+                        source_limited=source_limited,
                     )
                     write_json(manifest_path, manifest)
 
-            stored_chapters = (
-                merge_chapter_records(existing_chapter_records, chapter_records)
-                if publication_is_work and not args.inspect
-                else chapter_records
+            stored_chapters = select_stored_chapter_records(
+                existing_chapter_records,
+                chapter_records,
+                publication_is_work=publication_is_work,
+                inspect=args.inspect,
             )
-            manifest["publication"]["chapters"] = stored_chapters
-            manifest["publication"]["selected_part_count"] = len(stored_chapters)
-            manifest["publication"]["selected_chapter_count"] = len(stored_chapters)
-            if "availability" in manifest["publication"]:
-                manifest["publication"]["availability"][
-                    "selected_accessible_part_count"
-                ] = len(stored_chapters)
-            work_complete = (
-                completed
-                and (
-                    not publication_is_work
-                    or (
-                        len(stored_chapters) >= len(all_chapters)
-                        and all(
-                            item.get("status") == "complete"
-                            for item in stored_chapters
-                        )
-                    )
-                )
-            )
-            manifest["publication"]["status"] = (
-                "limited_by_source"
-                if work_complete and source_limited
-                else "complete"
-                if work_complete
-                else "incomplete"
+            update_manifest_progress(
+                manifest,
+                stored_chapters,
+                completed=completed,
+                publication_is_work=publication_is_work,
+                all_part_count=len(all_chapters),
+                source_limited=source_limited,
             )
             normalize_legacy_manifest(manifest, source_route.adapter.id)
 
@@ -1525,43 +1491,7 @@ def run(args) -> int:
 
             if not publication_is_work:
                 record = chapter_records[0]
-                manifest["publication"]["chapters"] = [
-                    {
-                        "index": record["index"],
-                        "number": record["number"],
-                        "title": record["title"],
-                        "kind": record["kind"],
-                        "source_url": record["source_url"],
-                        "page_count": record.get("detected", 0),
-                        "status": record.get("status"),
-                    }
-                ]
-                for key in (
-                    "reading_mode",
-                    "selector",
-                    "expected",
-                    "expected_source",
-                    "detected",
-                    "resource_count",
-                    "resource_unit",
-                    "reader_expected",
-                    "source_visible_page_count",
-                    "recovered_from_detached_tree",
-                    "saved",
-                    "missing",
-                    "missing_count",
-                    "quality",
-                    "pdf_diagnostics",
-                    "epub_spine_items",
-                    "epub_diagnostics",
-                    "render_dpi",
-                    "source_sha256",
-                    "watermarks_removed",
-                    "pages",
-                    "artifact",
-                ):
-                    if key in record:
-                        manifest[key] = record[key]
+                flatten_single_document_manifest(manifest, record)
             write_json(manifest_path, manifest)
             if completed:
                 try:
