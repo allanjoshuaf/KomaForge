@@ -41,6 +41,7 @@ $desktop = [Environment]::GetFolderPath('Desktop')
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut((Join-Path $desktop "KomaForge.lnk"))
 $shortcut.TargetPath = $installed
+$shortcut.Arguments = ""
 $shortcut.WorkingDirectory = $destination
 $shortcut.IconLocation = "$installed,0"
 $shortcut.WindowStyle = 1
