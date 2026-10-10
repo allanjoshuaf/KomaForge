@@ -49,7 +49,10 @@ class ReaderBrowserTests(unittest.TestCase):
                     thread.start()
                     try:
                         page.goto(server.url)
-                        page.wait_for_function("() => document.querySelector('#position').textContent === 'Page 2 / 3'")
+                        # The server already prints "Page 2" before the async
+                        # image decode/scroll restore has run. Wait for the
+                        # status actually updated by that restore, not static HTML.
+                        page.wait_for_function("() => document.title.startsWith('2/3 ·') && document.querySelector('#position').textContent === 'Page 2 / 3'")
                         if target == 3:
                             page.locator("#next").click()
                             page.wait_for_function("() => document.querySelector('#position').textContent === 'Page 3 / 3'")

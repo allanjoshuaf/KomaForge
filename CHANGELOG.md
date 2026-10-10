@@ -2,6 +2,14 @@
 
 Toutes les modifications notables de KomaForge sont consignées ici.
 
+## 0.5.1 — Non publié
+
+- lancement eBooks plus robuste : attente bornée de l'apparition du bouton Preview,
+  nouvelle détection des contrôles après actualisation de la page et délai adapté
+  aux réponses lentes ; seuls les contrôles et URL du lecteur officiel sont utilisés ;
+- tests de non-régression pour les boutons tardifs, remplacés, les réponses lentes
+  et les délais expirés, avec une vérification navigateur sur une page contrôlée.
+
 ## 0.5.0 — 2026-10-10
 
 - distribution Windows portable avec Python inclus, empreinte SHA-256 et installation

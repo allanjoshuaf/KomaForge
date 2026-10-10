@@ -28,10 +28,8 @@ def _ebooks_reader_url(value: object) -> str | None:
     return value.strip()
 
 
-def discover_linked_reader(context, page) -> dict | None:
-    """Ouvre une prévisualisation explicitement proposée par une page produit."""
-    if not is_ebooks_product_url(page.url):
-        return None
+def _ebooks_preview_controls(page) -> tuple[dict | None, list[dict]]:
+    """Collect current controls; a frontend rerender can replace old markers."""
     candidates = page.evaluate(
         r"""
         () => {
@@ -75,8 +73,8 @@ def discover_linked_reader(context, page) -> dict | None:
     )
     if isinstance(candidates, dict):
         candidates = [candidates]
-    if not isinstance(candidates, list) or not candidates:
-        return None
+    if not isinstance(candidates, list):
+        return None, []
 
     clickable_candidates: list[dict] = []
     for candidate in candidates:
@@ -85,14 +83,31 @@ def discover_linked_reader(context, page) -> dict | None:
         href = str(candidate.get("href") or "")
         direct_url = _ebooks_reader_url(urljoin(page.url, href))
         if direct_url:
-            return {"url": direct_url, "action": candidate["label"]}
+            return {"url": direct_url, "action": candidate["label"]}, []
         # An ordinary link such as the footer's "Read online" help page is
         # not a launch control and must never be clicked speculatively.
         if href:
             continue
         clickable_candidates.append(candidate)
-    if not clickable_candidates:
+    return None, clickable_candidates
+
+
+def discover_linked_reader(context, page) -> dict | None:
+    """Ouvre une prévisualisation explicitement proposée par une page produit."""
+    if not is_ebooks_product_url(page.url):
         return None
+    # DOMContentLoaded does not imply that the product's preview control exists
+    # yet. Wait briefly for that explicit control, never for a guessed URL.
+    readiness_deadline = time.monotonic() + 5
+    while True:
+        direct_entry, clickable_candidates = _ebooks_preview_controls(page)
+        if direct_entry:
+            return direct_entry
+        if clickable_candidates:
+            break
+        if time.monotonic() >= readiness_deadline:
+            return None
+        page.wait_for_timeout(250)
 
     launched_urls: list[str] = []
 
@@ -117,24 +132,36 @@ def discover_linked_reader(context, page) -> dict | None:
     page.on("response", remember_preview_launch)
 
     try:
-        deadline = time.monotonic() + 15
+        deadline = time.monotonic() + 30
         # The preview-launch endpoint can ignore the first click immediately
         # after its access check has cleared. A second bounded pass uses the
-        # same explicit Preview control without guessing an endpoint or URL.
+        # current explicit Preview controls without guessing an endpoint or URL.
         for _round in range(2):
+            if _round:
+                direct_entry, refreshed_candidates = _ebooks_preview_controls(page)
+                if direct_entry:
+                    return direct_entry
+                if refreshed_candidates:
+                    clickable_candidates = refreshed_candidates
             for candidate in clickable_candidates:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
                 control = page.locator(
                     f'[data-komaforge-reader-entry="{candidate["marker"]}"]'
                 ).first
                 try:
                     try:
-                        control.click(timeout=5_000, no_wait_after=True)
+                        control.click(timeout=min(5_000, max(1, int(remaining * 1_000))),
+                                      no_wait_after=True)
                     except Exception:
+                        if time.monotonic() >= deadline:
+                            break
                         control.evaluate("node => node.click()")
                 except Exception:
                     continue
 
-                attempt_deadline = min(deadline, time.monotonic() + 5)
+                attempt_deadline = min(deadline, time.monotonic() + 10)
                 while time.monotonic() < attempt_deadline:
                     if launched_urls:
                         return {"url": launched_urls[-1], "action": candidate["label"]}
