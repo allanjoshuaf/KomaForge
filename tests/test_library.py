@@ -317,7 +317,7 @@ class LibraryIndexTests(unittest.TestCase):
             self.assertEqual(summary.manifests, 2)
             self.assertEqual(summary.duplicate_manifests, 1)
             self.assertEqual(summary.publications, 1)
-            self.assertEqual(Path(publication["manifest_path"]), winner)
+            self.assertEqual(Path(publication["manifest_path"]), winner.resolve())
             self.assertEqual(publication["artifact_integrity"], "verified")
             self.assertEqual(
                 [item["title"] for item in index.list_downloaded()],

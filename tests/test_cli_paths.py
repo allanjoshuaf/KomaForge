@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from document_extractor.cli import (
@@ -109,7 +110,7 @@ class PortablePathTests(unittest.TestCase):
                 "Same Title",
                 "https://example.test/book/two",
             )
-            self.assertEqual(selected, root / "Same-Title-2")
+            self.assertEqual(selected, (root / "Same-Title-2").resolve())
 
     def test_title_directory_reuses_the_same_source(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -125,7 +126,7 @@ class PortablePathTests(unittest.TestCase):
                 "Same Title",
                 "https://example.test/book/one",
             )
-            self.assertEqual(selected, existing)
+            self.assertEqual(selected, existing.resolve())
 
     def test_work_output_does_not_mix_with_older_single_document_output(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -151,7 +152,7 @@ class PortablePathTests(unittest.TestCase):
                 expected_manifest="publication.json",
             )
 
-            self.assertEqual(selected, root / "Fullmetal-Alchemist-2")
+            self.assertEqual(selected, (root / "Fullmetal-Alchemist-2").resolve())
 
     def test_explicit_output_rejects_another_book(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -205,7 +206,7 @@ class PortablePathTests(unittest.TestCase):
     def test_browser_profile_uses_local_application_data(self):
         with tempfile.TemporaryDirectory() as temp:
             with patch.dict(os.environ, {"LOCALAPPDATA": temp}, clear=False):
-                with patch("document_extractor.paths.os.name", "nt"):
+                with patch("document_extractor.paths.os", SimpleNamespace(name="nt", environ=os.environ)):
                     self.assertEqual(
                         default_profile_dir(),
                         (Path(temp) / "KomaForge" / "ChromeProfile").resolve(),
