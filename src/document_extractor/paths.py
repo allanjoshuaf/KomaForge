@@ -33,9 +33,16 @@ TITLE_SUFFIXES = (
 
 def safe_slug(value: str) -> str:
     """Retourne un nom de dossier portable, sans nom d'utilisateur codé en dur."""
-    value = unicodedata.normalize("NFKD", value)
-    value = value.encode("ascii", "ignore").decode("ascii")
-    value = re.sub(r"[^a-zA-Z0-9._-]+", "-", value).strip("-._")
+    normalized = unicodedata.normalize("NFKD", value)
+    characters: list[str] = []
+    for character in normalized:
+        if unicodedata.combining(character):
+            continue
+        if character.isalnum() or character in "._-":
+            characters.append(character)
+        else:
+            characters.append("-")
+    value = "".join(characters).strip("-._")
     value = re.sub(r"-{2,}", "-", value)
     value = value[:96] or "document"
     if value.casefold() in {
@@ -65,6 +72,9 @@ def application_home() -> Path:
 def default_output_root(base_dir: Path | None = None) -> Path:
     if base_dir is not None:
         return (base_dir / "extractions").resolve()
+    configured = os.environ.get("KOMAFORGE_OUTPUT_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
     if os.name == "nt":
         system_drive = os.environ.get("SystemDrive", "C:").rstrip("\\/")
         return Path(f"{system_drive}\\Extractions\\Manga").resolve()
@@ -149,11 +159,22 @@ def canonical_source_identity(source_url: str) -> str:
     if query.get("bid"):
         stable_query = urlencode({"bid": query["bid"][0]})
     else:
-        volatile = {"hash", "reqid", "session", "t", "token", "uid"}
+        volatile = {
+            "fbclid",
+            "gclid",
+            "hash",
+            "msclkid",
+            "reqid",
+            "session",
+            "t",
+            "token",
+            "uid",
+        }
         stable_items = sorted(
             (key, value)
             for key, values in query.items()
-            if key.casefold() not in volatile
+            if key.casefold().strip("_-") not in volatile
+            and not key.casefold().startswith("utm_")
             for value in values
         )
         stable_query = urlencode(stable_items)

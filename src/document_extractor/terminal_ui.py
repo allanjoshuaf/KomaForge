@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import textwrap
 import time
 import unicodedata
 from dataclasses import dataclass, field
@@ -331,6 +332,8 @@ RUNTIME_MESSAGES: dict[str, dict[str, str]] = {
     "inspection_incomplete": {"fr": "[ANNULÉ] Inspection incomplète : aucune publication ne serait créée.", "en": "[CANCELLED] Incomplete inspection: no publication would be created.", "ru": "[ОТМЕНЕНО] Проверка неполная: публикация не будет создана.", "zh": "[已取消] 检查不完整：不会创建出版物。"},
     "result": {"fr": "Résultat : {value}", "en": "Result: {value}", "ru": "Результат: {value}", "zh": "结果：{value}"},
     "manifest": {"fr": "Manifeste : {value}", "en": "Manifest: {value}", "ru": "Манифест: {value}", "zh": "清单：{value}"},
+    "library_updated": {"fr": "Bibliothèque mise à jour : {value}", "en": "Library updated: {value}", "ru": "Библиотека обновлена: {value}", "zh": "书库已更新：{value}"},
+    "library_update_failed": {"fr": "[AVERTISSEMENT] Le fichier est valide, mais l’index local n’a pas été actualisé ({value}).", "en": "[WARNING] The file is valid, but the local index was not refreshed ({value}).", "ru": "[ПРЕДУПРЕЖДЕНИЕ] Файл корректен, но локальный индекс не обновлён ({value}).", "zh": "[警告] 文件有效，但本地索引未更新（{value}）。"},
     "consent": {"fr": "Consentement : {value}", "en": "Consent: {value}", "ru": "Согласие: {value}", "zh": "Cookie 同意：{value}"},
     "reader_start": {"fr": "Démarrage du lecteur : {value}", "en": "Reader started: {value}", "ru": "Запуск читалки: {value}", "zh": "阅读器已启动：{value}"},
     "reader_initialization": {"fr": "Initialisation du lecteur : {seconds:.1f} s", "en": "Reader initialization: {seconds:.1f} s", "ru": "Инициализация читалки: {seconds:.1f} с", "zh": "阅读器初始化：{seconds:.1f} 秒"},
@@ -344,7 +347,7 @@ RUNTIME_MESSAGES: dict[str, dict[str, str]] = {
     "epub_incomplete": {"fr": "[INCOMPLET] EPUB : {missing} document(s) annoncé(s) sont absents.", "en": "[INCOMPLETE] EPUB: {missing} announced document(s) are missing.", "ru": "[НЕПОЛНО] EPUB: отсутствует заявленных документов — {missing}.", "zh": "[不完整] EPUB：缺少 {missing} 个声明的文档。"},
     "epub_no_orphans": {"fr": "Diagnostic EPUB : aucun fichier local détaché ni donnée ajoutée n’a été trouvé.", "en": "EPUB diagnostic: no detached local file or appended data was found.", "ru": "Диагностика EPUB: отделённых локальных файлов и добавленных данных не найдено.", "zh": "EPUB 诊断：未发现分离的本地文件或追加数据。"},
     "extraction_refused": {"fr": "[ANNULÉ] Extraction refusée : {present}/{total} document(s), {missing} manquant(s).", "en": "[CANCELLED] Extraction refused: {present}/{total} document(s), {missing} missing.", "ru": "[ОТМЕНЕНО] Извлечение отклонено: {present}/{total} документов, отсутствует {missing}.", "zh": "[已取消] 拒绝提取：{present}/{total} 个文档，缺少 {missing} 个。"},
-    "catalog": {"fr": "Catalogue Manga UP : {accessible} sous-partie(s) accessible(s) sur {total} annoncée(s)", "en": "Manga UP catalog: {accessible} accessible part(s) out of {total}", "ru": "Каталог Manga UP: доступно частей {accessible} из {total}", "zh": "Manga UP 目录：{total} 个部分中可访问 {accessible} 个"},
+    "catalog": {"fr": "Catalogue {source} : {accessible} partie(s) accessible(s) sur {total} annoncée(s)", "en": "{source} catalog: {accessible} accessible part(s) out of {total}", "ru": "Каталог {source}: доступно частей {accessible} из {total}", "zh": "{source} 目录：{total} 个部分中可访问 {accessible} 个"},
     "source_limit": {"fr": "[LIMITÉ PAR LA SOURCE] Seules les parties accessibles dans cette session seront proposées.", "en": "[SOURCE LIMITED] Only parts accessible in this session will be offered.", "ru": "[ОГРАНИЧЕНО ИСТОЧНИКОМ] Будут предложены только доступные в этой сессии части.", "zh": "[来源受限] 仅提供当前会话可访问的部分。"},
     "source_result": {"fr": "[RÉSULTAT LIMITÉ PAR LA SOURCE] {accessible}/{total} partie(s) accessibles.", "en": "[SOURCE-LIMITED RESULT] {accessible}/{total} part(s) accessible.", "ru": "[РЕЗУЛЬТАТ ОГРАНИЧЕН ИСТОЧНИКОМ] Доступно {accessible}/{total} частей.", "zh": "[来源受限结果] 可访问 {accessible}/{total} 个部分。"},
 }
@@ -450,6 +453,22 @@ class TerminalUI:
 
     def key_value(self, label: str, value: object) -> None:
         print(f"  {self._style(label + ':', '1')} {value}", file=self.stream)
+
+    def item(self, label: str, detail: str | None = None) -> None:
+        print(f"  {self._style('•', '1;36')} {self._style(label, '1')}", file=self.stream)
+        if detail:
+            for line in textwrap.wrap(
+                detail,
+                width=68,
+                break_long_words=False,
+                break_on_hyphens=False,
+            ):
+                print(self._style(f"      {line}", "2"), file=self.stream)
+
+    def notice(self, message: str, tone: str = "info") -> None:
+        colors = {"info": "36", "success": "1;32", "warning": "1;33"}
+        marker = {"info": "i", "success": "OK", "warning": "!"}.get(tone, "i")
+        print(self._style(f"  [{marker}] {message}", colors.get(tone, "36")), file=self.stream)
 
     def error(self, message: str) -> None:
         print(self._style(f"{self.text('error')} : {message}", "1;31"), file=self.stream)

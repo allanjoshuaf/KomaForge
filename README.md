@@ -43,6 +43,36 @@ site.
   images intégrées sous forme d'URI `data:` ;
 - inventaire automatique des balises, classes, textes et filigranes SVG.
 
+## Architecture interne
+
+### Windows sans installation de Python
+
+Téléchargez le ZIP Windows et `SHA256SUMS.txt` depuis les
+[versions publiées](https://github.com/allanjoshuaf/KomaForge/releases/latest).
+Extrayez le dossier complet puis lancez `KomaForge.exe`. Pour installer ou mettre
+à jour l'icône **KomaForge** du Bureau, lancez `Install-KomaForge.ps1` inclus dans
+le même dossier. Google Chrome reste nécessaire ; WinRAR est facultatif pour CBR.
+Les versions sont conservées séparément, sans remplacer vos extractions ni votre
+progression de lecture. Il n'y a pas de téléchargement automatique de code.
+Consultez [les instructions portables](scripts/PORTABLE.md) pour vérifier l'empreinte.
+
+### Services du moteur
+
+KomaForge sépare désormais trois responsabilités :
+
+- **Core** orchestre une inspection ou une extraction, applique les preuves de
+  couverture et refuse les résultats incomplets ;
+- **Sources** contient les adaptateurs spécialisés et le moteur générique, avec
+  des capacités facultatives de recherche, catalogue et mise à jour ;
+- **Library** indexe les manifestes locaux, les suivis, la progression de lecture
+  et la file persistante sans devenir la source de vérité des fichiers.
+
+Les modèles normalisés `Work`, `Publication`, `Part`, `Resource` et `Coverage`
+relient ces couches. La planification des parties, la production des documents
+directs, la production des archives d'images et la mise à jour des manifestes sont
+isolées de `engine.py`. Ainsi, ajouter un adaptateur ne demande pas d'ajouter une
+nouvelle branche propre au site dans l'orchestrateur central.
+
 ## Qualité et intégrité
 
 KomaForge ne convertit pas une image JPEG en PNG ou inversement pour le simple
@@ -188,6 +218,277 @@ Après l'installation, cette forme fonctionne aussi :
 komaforge "https://votre-site.com/document" --format epub
 ```
 
+Sans URL, le menu interactif ouvert par KomaForge réunit désormais l’extraction
+guidée, les options avancées, le catalogue des sources, la bibliothèque locale et
+la file d’attente. Les commandes détaillées ci-dessous restent disponibles pour
+les scripts et l’automatisation.
+
+## Bibliothèque locale
+
+KomaForge construit automatiquement un index SQLite à partir des manifestes déjà
+présents lorsqu’il manque. Chaque extraction réussie actualise ensuite cet index.
+Les manifestes restent la source de vérité : l’index peut être supprimé et recréé à
+tout moment, sans modifier les livres ni les archives.
+
+```powershell
+komaforge library rebuild
+komaforge library add "https://votre-site.com/oeuvre" --format original
+komaforge library list
+komaforge library search "titre"
+komaforge library publications --json
+komaforge library downloaded
+komaforge library continue
+komaforge library read IDENTIFIANT_PUBLICATION
+komaforge library read IDENTIFIANT_PUBLICATION --part-id IDENTIFIANT_PARTIE
+komaforge library open IDENTIFIANT_PUBLICATION
+komaforge library status
+komaforge library track IDENTIFIANT_PUBLICATION
+komaforge library tracked
+komaforge library categories
+komaforge library category-add "À lire" IDENTIFIANT_PUBLICATION
+komaforge library category-members "À lire"
+komaforge library category-remove "À lire" IDENTIFIANT_PUBLICATION
+komaforge library category-delete "À lire"
+komaforge library unread
+komaforge library unread --publication-id IDENTIFIANT_PUBLICATION
+komaforge library mark-read IDENTIFIANT_PUBLICATION
+komaforge library mark-unread IDENTIFIANT_PUBLICATION
+komaforge library update
+komaforge library update --publication-id IDENTIFIANT_PUBLICATION
+komaforge library sync
+komaforge library sync --publication-id IDENTIFIANT_PUBLICATION --limit 100
+komaforge library updates
+komaforge library updates --publication-id IDENTIFIANT_PUBLICATION
+komaforge library updates-seen
+komaforge library updates-seen --publication-id IDENTIFIANT_PUBLICATION --part-id IDENTIFIANT_PARTIE
+komaforge library history
+komaforge library progress IDENTIFIANT_PUBLICATION IDENTIFIANT_PARTIE 12
+komaforge doctor
+komaforge doctor --json
+```
+
+Par défaut, la commande lit `C:\Extractions\Manga` sous Windows et place l’index
+dans `C:\Extractions\Manga\.komaforge\library.sqlite`. `--root` permet de choisir
+une autre bibliothèque et `--index` un autre fichier SQLite. L’option `--json`
+fournit une sortie stable pour une future interface ou un autre outil local.
+Le tableau `library status` réunit dans ce même format stable la santé de l’index,
+les téléchargements disponibles, les publications suivies, les catégories, les
+parties non lues, l’historique et le nombre de travaux dans chaque état de la file.
+`doctor` vérifie sans écriture Python, Chrome, les dépendances requises, le dossier
+de sortie, les versions des trois bases SQLite et les manifestes de sources tiers.
+Un index absent est signalé comme reconstructible et ne constitue pas un échec ;
+une base présente mais incompatible produit un échec explicite.
+
+Lorsqu’une même source possède plusieurs anciens manifestes, la reconstruction
+garde une seule publication canonique. Elle privilégie d’abord la couverture
+explicitement prouvée, puis son état, l’intégrité vérifiable de son artefact et sa
+date. Les anciennes URL de lecteur eBooks sont rapprochées des fiches produit par
+leur identifiant de livre, ce qui empêche un ancien aperçu déclaré complet de
+masquer un diagnostic plus récent comme `11/62`. Les URL de
+ressources portant des jetons temporaires ne sont pas copiées dans l’index.
+Le suivi et la progression sont conservés séparément dans
+`.komaforge/state.sqlite`; reconstruire `library.sqlite` ne les efface pas. Les
+identifiants de publication nécessaires au suivi sont disponibles avec
+`komaforge library publications --json`. La commande `library add` réunit
+l’extraction, l’indexation et le suivi dans une seule opération ; elle ne suit rien
+si l’extraction est refusée ou incomplète. La vue `unread` liste chaque partie non
+terminée et sa dernière position enregistrée, globalement ou pour une publication.
+`mark-read` et `mark-unread` appliquent le statut à toute une publication ;
+`--part-id` permet de viser seulement une partie. Remettre en non-lu efface la
+progression concernée sans retirer la publication du suivi.
+`library update` ajoute une vérification pour chaque publication suivie sans créer de
+doublon lorsqu’une vérification identique est déjà en attente ou en cours.
+`library sync` effectue ce même travail puis exécute, dans une limite explicite, les
+vérifications et téléchargements de mise à jour. Les inspections indépendantes déjà
+présentes dans la file ne sont pas consommées par cette synchronisation. Sa sortie
+JSON sépare vérifications, téléchargements, nouveautés, échecs et travaux restants.
+Lorsqu’une vérification découvre de nouvelles parties, `library updates` les liste
+séparément du statut de lecture et indique si leur téléchargement est en attente,
+terminé ou en échec. `library updates-seen` les marque comme consultées sans les
+marquer comme lues et sans supprimer les téléchargements planifiés.
+La commande peut filtrer une publication et acquitter une seule partie. Dans le
+menu Bibliothèque, une nouveauté peut être choisie par son numéro puis ouverte
+directement ; seule cette partie est alors marquée comme consultée.
+`downloaded` ne retient que les artefacts encore présents et `history` résout la
+progression persistante vers les titres de publication et de partie actuels.
+Les catégories servent à organiser une même publication suivie dans plusieurs
+listes locales, par exemple `À lire`, `En cours` ou `Favoris`. Elles sont conservées
+dans `state.sqlite`, survivent à la reconstruction de l’index et peuvent aussi être
+gérées depuis le menu Bibliothèque. Retirer une publication du suivi supprime ses
+classements ; supprimer une catégorie ne supprime ni la publication ni son archive.
+`read` ouvre les CBZ et les dossiers d’images dans le lecteur local de KomaForge ;
+`--part-id` permet d’ouvrir directement une nouveauté précise.
+Il fonctionne hors ligne sur `127.0.0.1`, avec une adresse de session aléatoire,
+sans téléverser les pages. La position est enregistrée automatiquement ; les
+flèches, Page précédente/suivante, Début, Fin, `F` et `Q` sont utilisables au
+clavier. Le bouton **Fermer** ou `Q` arrête aussi le serveur local.
+`continue` rouvre en priorité la partie inachevée consultée le plus récemment ;
+à défaut, elle choisit la première partie non lue de la publication suivie la plus
+récente. Pour une œuvre composée de plusieurs chapitres, chaque partie est associée
+à sa propre archive avant l’ouverture afin de ne pas reprendre le mauvais CBZ.
+`open` confie le premier artefact disponible à l’application locale associée à son
+format. PDF, EPUB et CBR restent ainsi confiés à leur lecteur natif tant que leur
+rendu interne n’est pas pris en charge. Le chemin doit rester dans le dossier de la
+publication ; un ancien manifeste qui tente d’en sortir est refusé.
+
+Les opérations différées utilisent une seconde base, indépendante de l’index :
+
+```powershell
+komaforge jobs add "https://votre-site.com/document" --action inspect
+komaforge jobs add "https://votre-site.com/oeuvre" --action download --format cbz --chapters "1-5"
+komaforge jobs add "https://votre-site.com/oeuvre" --action update
+komaforge jobs list
+komaforge jobs run-next
+komaforge jobs run-all --limit 100
+komaforge jobs retry IDENTIFIANT
+komaforge jobs cancel IDENTIFIANT
+```
+
+La file accepte `inspect`, `download` et `update`. Elle conserve l’état et le nombre
+de tentatives après un redémarrage, mais refuse les URL contenant des identifiants,
+des jetons temporaires ou une session de lecteur eBooks. Une URL produit stable est
+requise afin qu’aucun secret de session ne soit écrit dans SQLite.
+`run-next` exécute les trois types de travaux avec le moteur existant. Une mise à
+jour inspecte la publication, compare ses parties au manifeste indexé et place
+uniquement les nouvelles parties dans un téléchargement groupé de l’œuvre. Les
+archives déjà présentes et leurs enregistrements sont conservés ; les nouvelles
+parties enrichissent le même `publication.json` jusqu’à ce que la couverture de
+l’œuvre soit complète. Une œuvre déjà en attente ou en cours n’est pas ajoutée une
+seconde fois. Si la publication n’est
+pas encore dans la bibliothèque, la vérification échoue explicitement.
+`run-all` traite la file en série, y compris les téléchargements créés par une
+vérification de mise à jour, avec une limite explicite qui empêche une boucle sans
+fin de monopoliser l’application.
+Une file placée dans `BIBLIOTHÈQUE/.komaforge/jobs.sqlite` dirige automatiquement
+ses sorties vers cette bibliothèque. Pour une file stockée ailleurs, utilisez
+`komaforge jobs run-all --root BIBLIOTHÈQUE`; un `--output` défini sur un travail
+reste toujours prioritaire.
+
+Les adaptateurs disponibles et leurs capacités peuvent être interrogés sans ouvrir
+de navigateur :
+
+```powershell
+komaforge sources list
+komaforge sources list --status validated
+komaforge sources list --status degraded
+komaforge sources list --status experimental
+komaforge sources list --integration generic
+komaforge sources list --access session_dependent
+komaforge sources status
+komaforge sources families
+komaforge sources candidates
+komaforge sources extensions
+komaforge sources extensions --directory "C:\chemin\vers\les\manifestes" --json
+komaforge sources extension-enable example-reader --directory "C:\chemin\vers\les\manifestes"
+komaforge sources extension-disable example-reader --directory "C:\chemin\vers\les\manifestes"
+komaforge sources list --sources-directory "C:\chemin\vers\les\manifestes"
+komaforge sources match "https://global.manga-up.com/manga/126"
+komaforge sources search "Fullmetal Alchemist" --source mangadex
+komaforge sources popular --source mangadex
+komaforge sources latest --source mangadex
+```
+
+`list` sépare désormais trois informations qui ne signifient pas la même chose :
+la compatibilité (`validated`, `degraded`, `experimental` ou `offline`),
+l’intégration (`specialized` ou `generic`) et l’accès observé (`full`,
+`source_limited`, `session_dependent` ou `variable`).
+`status` fournit un résumé JSON stable des adaptateurs, candidats et familles par
+état, ainsi que les identifiants capables de rechercher, parcourir ou vérifier les
+mises à jour. Il permet à une future interface de présenter la santé des sources
+sans analyser du texte destiné à l’utilisateur.
+`families` garde séparées les stratégies réutilisables (lecteur paginé, vertical,
+document direct ou parties sélectionnables). `candidates` liste les sites déjà
+observés avec le fallback mais qui n’ont pas encore d’adaptateur spécialisé.
+Les lecteurs d’images Blob, à manifeste de chapitre, paginés, à attribut de page
+et verticaux sont désormais routés par des stratégies distinctes. Leur ordre est
+déterministe et une stratégie reconnue n’agrège pas silencieusement les images
+d’une autre famille.
+La découverte des parties applique la même règle aux liens de chapitre, contrôles
+de volume/section et publications à document unique.
+`extensions` inspecte des manifestes JSON tiers locaux avec un schéma borné. Ces
+manifestes déclarent identifiant, domaines, langues, familles, capacités et
+permissions réseau. Ils commencent désactivés et restent toujours non exécutables :
+`extension-enable` active seulement un routage déclaratif vers le moteur générique
+déjà intégré. Les points d’entrée Python, accès au système de fichiers, familles
+inconnues, conflits d’identifiant ou de domaine, doublons, liens symboliques et
+manifestes de plus de 64 Kio sont refusés. Les capacités non encore prises en charge
+(`search` et `browse`) bloquent également l’activation au lieu d’être annoncées à
+tort. La liste `.enabled` est relue au démarrage et un manifeste actif devenu absent
+ou invalide fait échouer le routage explicitement.
+
+Exemple minimal dans `example-reader.json` :
+
+```json
+{
+  "schema_version": 1,
+  "id": "example-reader",
+  "name": "Example Reader",
+  "version": "1.0.0",
+  "languages": ["fr"],
+  "domains": ["reader.example.org"],
+  "families": ["vertical-images"],
+  "capabilities": ["url"],
+  "permissions": {
+    "network_domains": ["reader.example.org", "cdn.example.org"],
+    "browser": true,
+    "filesystem": "none"
+  }
+}
+```
+
+Une source déclarative peut identifier ses URL et autoriser ses CDN, mais elle ne
+peut ni exécuter un module tiers ni contourner les contrôles de couverture. Une
+source intégrée ou un site générique déjà validé garde la priorité : son identifiant
+et ses domaines ne peuvent pas être revendiqués par une extension locale.
+SushiScan et MangaReader.pro peuvent ainsi être marqués compatibles et validés tout
+en restant honnêtement décrits comme des intégrations génériques. La date du dernier
+contrôle live est publiée afin qu’un statut ancien ne soit pas pris pour une garantie.
+Scribd possède désormais son propre adaptateur spécialisé. Le lecteur testé expose
+231 conteneurs de pages indexés ; KomaForge rend ensemble leurs illustrations et
+leur couche de texte, puis libère chaque page déjà capturée pour garder une vitesse
+et une mémoire stables. Les panneaux, barres et recommandations ne sont pas traités
+comme des pages. Si Scribd active son verrou « regarder une publicité pour libérer
+les pages », KomaForge attend sa disparition et refuse d'archiver le contenu flouté.
+L'option `--wait-for-user` permet de terminer le parcours officiel dans Chrome ; un
+VPN ou bloqueur de publicités peut empêcher cette étape. La couverture `231/231`
+reste liée à ce document, à cette session et à la date de vérification, pas à une
+promesse universelle pour tous les comptes ou toutes les publications Scribd.
+À l’inverse, une fiche MGU Russian Store ne contient ni lecteur ni fichier public :
+les livres électroniques y sont livrés par e-mail après achat. L’adaptateur la
+reconnaît donc et demande le fichier ou lien autorisé reçu, au lieu de transformer
+la photo commerciale en prétendue page du livre.
+La commande `match` montre clairement si l’URL utilise une source spécialisée, un
+site générique déjà validé ou le fallback inconnu. Une URL SushiScan conserve ainsi
+le statut `validated` et le nom SushiScan, avec `adapter_id=generic-web`, au lieu
+d’hériter du statut expérimental réservé aux sites inconnus. Cette identification ne
+contacte pas le site et ne masque donc jamais l’échec ultérieur d’un adaptateur
+reconnu. Un statut décrit la fiabilité de l’intégration, pas la complétude d’un livre :
+la couverture reste consignée séparément dans le manifeste.
+Calaméo, Scribd, Manga UP et eBooks.com alimentent maintenant réellement le moteur par
+leurs modèles normalisés de publication et de partie. Une source spécialisée
+reconnue qui échoue produit donc son propre diagnostic au lieu de retomber
+silencieusement sur la détection web générique. Core conserve la navigation, la
+validation des ressources et la création des formats afin que ces garanties restent
+communes à toutes les sources. Le chargement d’une publication et de ses parties
+passe par le même contrat applicatif pour tous les adaptateurs ; ajouter une source
+spécialisée ne nécessite plus d’ajouter son identifiant dans l’orchestrateur.
+
+MangaDex est la première source à exposer la recherche, les œuvres populaires et
+les dernières mises à jour à distance. Son adaptateur utilise l’API publique,
+conserve l’attribution MangaDex et les noms des groupes de traduction dans les
+métadonnées, puis demande le manifeste MangaDex@Home seulement pour les chapitres
+sélectionnés. Son statut reste `experimental` pendant l’élargissement des tests
+réels. Toute utilisation doit respecter la
+[politique officielle de l’API MangaDex](https://gitlab.com/mangadex-pub/mangadex-api-docs/-/blob/main/index.md),
+notamment les crédits, les demandes de retrait et l’interdiction d’en tirer un
+service publicitaire ou payant.
+Dans le menu **Sources et compatibilité**, chaque résultat distant est numéroté.
+Choisir son numéro permet de sélectionner le format et les parties, puis d’extraire
+et suivre explicitement cette publication dans la bibliothèque. Appuyer directement
+sur Entrée annule l’ajout ; afficher un catalogue ne télécharge donc rien à lui seul.
+Les commandes séparées `komaforge-library`, `komaforge-jobs` et
+`komaforge-sources` restent installées pour les scripts existants.
+
 Pour analyser d'abord une URL sans enregistrer les pages :
 
 ```powershell
@@ -262,9 +563,9 @@ Options utiles :
 ## Détection automatique : limites assumées
 
 L'URL reste l'entrée principale : KomaForge inspecte le lecteur réellement ouvert
-au lieu d'imposer une liste de sites qui deviendrait vite obsolète. Des profils de
-sites pourront compléter cette détection plus tard, mais ils resteront des aides
-facultatives et remplaçables, jamais une condition pour essayer une URL inconnue.
+au lieu d'imposer une liste de sites qui deviendrait vite obsolète. Les adaptateurs
+spécialisés complètent cette détection pour les sources connues ; le moteur générique
+reste disponible pour essayer une URL inconnue sans prétendre offrir son catalogue.
 
 En mode automatique, une liste d'au moins trois liens cohérents et numérotés, ou un
 menu contenant au moins deux volumes, tomes ou chapitres cohérents, est nécessaire
@@ -333,6 +634,8 @@ tester, `--recover-detached-pdf` réassemble un unique arbre uniquement lorsque 
 nombre déclaré et résolu correspond aux métadonnées attendues, que tout le préfixe
 visible correspond et que chaque page de continuation possède contenu et ressources.
 Le résultat est ensuite rouvert et recompté avant d'être accepté.
+Avec `--inspect`, cette reconstruction reste entièrement en mémoire : elle permet de
+valider la couverture complète sans créer de PDF ni de manifeste.
 Dans le menu interactif, cette autorisation est demandée au moment de la détection,
 et seulement après que toutes ces vérifications ont réussi. Une commande directe
 reste non interactive et exige explicitement `--recover-detached-pdf`.

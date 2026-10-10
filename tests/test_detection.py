@@ -19,6 +19,7 @@ from unittest.mock import patch
 from document_extractor.detection import (
     _auto_group,
     discover_linked_reader,
+    hydrate_lazy_content,
     is_ebooks_product_url,
     looks_like_chapter_url,
     normalize_chapter_candidates,
@@ -32,17 +33,21 @@ from document_extractor.engine import (
     ChapterTask,
     _complete_access_check,
     _ask_interactive_detached_recovery,
-    _fetch_pdf_in_ranges,
     download_pages,
-    inspect_detached_page_trees,
+    merge_chapter_records,
     navigate_to_source,
-    recover_detached_page_tree,
     resolve_part_selection,
     run,
     trusted_selected_resource_hosts,
 )
-from tests.mock_site import DETACHED_TREE_PDF, NETWORK_EPUB, PNG, SVG
+from tests.mock_site import NETWORK_EPUB, PNG, SVG
 from tests.mock_site import MockDocumentHandler
+
+
+def extractor_command() -> list[str]:
+    """Run browser scenarios against source or the portable executable."""
+    executable = os.environ.get("KOMAFORGE_EXECUTABLE")
+    return [executable] if executable else [sys.executable, "-m", "document_extractor"]
 
 
 class QuietThreadingHTTPServer(ThreadingHTTPServer):
@@ -64,7 +69,116 @@ class SelectorInputTests(unittest.TestCase):
         )
 
 
+class HydrationTests(unittest.TestCase):
+    def test_hydration_walks_indexed_page_containers_in_order(self):
+        class IndexedPage:
+            def __init__(self):
+                self.scrolled = []
+                self.captured = []
+
+            def evaluate(self, script, arg=None):
+                if "querySelectorAll('[id^=\"outer_page_\"]')" in script:
+                    return [
+                        {"id": f"outer_page_{index}", "index": index}
+                        for index in range(1, 4)
+                    ]
+                if "async items =>" in script:
+                    self.scrolled = [item["id"] for item in arg]
+                    self.captured = [
+                        {
+                            "page": item["index"],
+                            "position": item["index"] - 1,
+                            "dataIndex": item["index"],
+                            "url": f"https://example.test/{item['index']}.webp",
+                            "width": 1200,
+                            "height": 1800,
+                        }
+                        for item in arg
+                    ]
+                    return self.captured
+                raise AssertionError(script)
+
+        page = IndexedPage()
+
+        result = hydrate_lazy_content(page, expected=3)
+
+        self.assertEqual(
+            page.scrolled,
+            ["outer_page_1", "outer_page_2", "outer_page_3"],
+        )
+        self.assertEqual(result["steps"], 3)
+        self.assertEqual(result["images_ready"], 3)
+        self.assertEqual(len(page.captured), 3)
+
+    def test_hydration_does_not_stop_while_scroll_position_advances(self):
+        class ScrollingPage:
+            def __init__(self):
+                self.y = 0
+                self.maximum_y = 0
+                self.scrolls = 0
+
+            def evaluate(self, script):
+                if "window.scrollBy" in script:
+                    self.scrolls += 1
+                    self.y = min(9_000, self.y + 2_400)
+                    self.maximum_y = max(self.maximum_y, self.y)
+                    return None
+                if "window.scrollTo" in script:
+                    self.y = 0
+                    return None
+                return {
+                    "imageCount": 1,
+                    "resolvedCount": 1,
+                    "uniqueCount": 1,
+                    "unresolved": [],
+                    "height": 10_000,
+                    "y": self.y,
+                    "viewport": 1_000,
+                }
+
+        page = ScrollingPage()
+
+        result = hydrate_lazy_content(
+            page,
+            expected=None,
+            max_steps=12,
+            minimum_steps=2,
+        )
+
+        self.assertGreaterEqual(page.maximum_y, 9_000)
+        self.assertGreaterEqual(page.scrolls, 4)
+        self.assertGreater(result["steps"], 3)
+
+
 class ChapterDiscoveryTests(unittest.TestCase):
+    def test_incremental_work_records_are_merged_without_erasing_complete_parts(self):
+        chapter_one = {
+            "index": 1,
+            "number": "1",
+            "title": "Chapter 1",
+            "source_url": "https://example.test/book/chapter-1",
+            "status": "complete",
+            "artifact": {"path": "chapters/chapter-1.cbz"},
+        }
+        chapter_two = {
+            "index": 2,
+            "number": "2",
+            "title": "Chapter 2",
+            "source_url": "https://example.test/book/chapter-2",
+            "status": "complete",
+            "artifact": {"path": "chapters/chapter-2.cbz"},
+        }
+
+        merged = merge_chapter_records([chapter_one], [chapter_two])
+        preserved = merge_chapter_records(
+            merged,
+            [{**chapter_one, "status": "error", "error": "temporary"}],
+        )
+
+        self.assertEqual([item["number"] for item in merged], ["1", "2"])
+        self.assertEqual(preserved[0]["status"], "complete")
+        self.assertEqual(preserved[0]["artifact"]["path"], "chapters/chapter-1.cbz")
+
     def test_recognizes_when_the_input_is_already_a_chapter(self):
         self.assertTrue(
             looks_like_chapter_url("https://example.test/manga/demo/chapter-12.5")
@@ -167,6 +281,137 @@ class ChapterDiscoveryTests(unittest.TestCase):
 
         self.assertEqual(result, {"url": reader_url, "action": "Preview"})
         self.assertIs(page.removed_callback, page.callback)
+
+    def test_ebooks_product_retries_responsive_preview_controls(self):
+        reader_url = "https://reader.ebooks.com/preview?uid=second-control"
+
+        class FakeControl:
+            def __init__(self, page, selector):
+                self.page = page
+                self.selector = selector
+
+            @property
+            def first(self):
+                return self
+
+            def click(self, **_kwargs):
+                if "second" in self.selector:
+                    self.page.context.pages.append(SimpleNamespace(
+                        url=reader_url,
+                        is_closed=lambda: False,
+                    ))
+
+            def evaluate(self, _script):
+                self.click()
+
+        class FakePage:
+            url = "https://www.ebooks.com/en-us/book/347114076/the-demon-star/"
+            frames = []
+
+            def __init__(self):
+                self.context = SimpleNamespace(pages=[self])
+
+            @staticmethod
+            def evaluate(_script):
+                return [
+                    {"marker": "first", "label": "Preview", "href": ""},
+                    {"marker": "second", "label": "Preview", "href": ""},
+                    {
+                        "marker": "help",
+                        "label": "Read online",
+                        "href": "https://support.ebooks.com/help",
+                    },
+                ]
+
+            def locator(self, selector):
+                return FakeControl(self, selector)
+
+            def on(self, _event, callback):
+                self.callback = callback
+
+            def remove_listener(self, _event, callback):
+                self.removed_callback = callback
+
+            @staticmethod
+            def wait_for_timeout(_milliseconds):
+                return None
+
+            @staticmethod
+            def is_closed():
+                return False
+
+        page = FakePage()
+
+        with patch("document_extractor.detection.time.monotonic") as monotonic:
+            ticks = iter(range(100))
+            monotonic.side_effect = lambda: next(ticks)
+            result = discover_linked_reader(page.context, page)
+
+        self.assertEqual(result, {"url": reader_url, "action": "Preview"})
+
+    def test_ebooks_product_retries_same_preview_after_transient_failure(self):
+        reader_url = "https://reader.ebooks.com/preview?uid=second-attempt"
+
+        class FakeControl:
+            def __init__(self, page):
+                self.page = page
+
+            @property
+            def first(self):
+                return self
+
+            def click(self, **_kwargs):
+                self.page.clicks += 1
+                if self.page.clicks == 2:
+                    self.page.context.pages.append(
+                        SimpleNamespace(url=reader_url, is_closed=lambda: False)
+                    )
+
+            def evaluate(self, _script):
+                self.click()
+
+        class FakePage:
+            url = "https://www.ebooks.com/en-us/book/210629805/physics/author/"
+            frames = []
+
+            def __init__(self):
+                self.clicks = 0
+                self.context = SimpleNamespace(pages=[self])
+
+            @staticmethod
+            def evaluate(_script):
+                return {
+                    "marker": "preview",
+                    "label": "Preview",
+                    "href": "",
+                }
+
+            def locator(self, _selector):
+                return FakeControl(self)
+
+            def on(self, _event, callback):
+                self.callback = callback
+
+            def remove_listener(self, _event, callback):
+                self.removed_callback = callback
+
+            @staticmethod
+            def wait_for_timeout(_milliseconds):
+                return None
+
+            @staticmethod
+            def is_closed():
+                return False
+
+        page = FakePage()
+
+        with patch("document_extractor.detection.time.monotonic") as monotonic:
+            ticks = iter(range(100))
+            monotonic.side_effect = lambda: next(ticks)
+            result = discover_linked_reader(page.context, page)
+
+        self.assertEqual(result, {"url": reader_url, "action": "Preview"})
+        self.assertEqual(page.clicks, 2)
 
     def test_prefers_a_numbered_page_family_over_reader_noise(self):
         candidates = []
@@ -421,10 +666,10 @@ class NavigationRecoveryTests(unittest.TestCase):
         args = SimpleNamespace(interactive=True, wait_for_user=False)
         expected = {"passed": True, "encountered": True, "waited_ms": 0}
         with patch(
-            "document_extractor.engine.access_interstitial_state",
+            "document_extractor.chapter_extraction.access_interstitial_state",
             return_value={"active": True, "title": "Just a moment"},
         ), patch(
-            "document_extractor.engine.wait_for_access_interstitial",
+            "document_extractor.chapter_extraction.wait_for_access_interstitial",
             return_value=expected,
         ), patch("builtins.input", return_value="") as prompt:
             result = _complete_access_check(object(), args)
@@ -569,50 +814,7 @@ class SelectedResourceHostTests(unittest.TestCase):
         self.assertEqual(trusted, {})
 
 
-class PdfTransportTests(unittest.TestCase):
-    def test_large_pdf_is_reassembled_from_verified_byte_ranges(self):
-        payload = b"%PDF-test-payload"
-
-        class FakeResponse:
-            status = 206
-
-            def __init__(self, body):
-                self._body = body
-
-            def body(self):
-                return self._body
-
-        class FakeRequestContext:
-            def __init__(self):
-                self.ranges = []
-
-            def fetch(self, _url, *, method, headers, timeout):
-                self.assertions = (method, timeout)
-                value = headers["range"].removeprefix("bytes=")
-                start, end = (int(item) for item in value.split("-", 1))
-                self.ranges.append((start, end))
-                return FakeResponse(payload[start : end + 1])
-
-        class FakeContext:
-            def __init__(self):
-                self.request = FakeRequestContext()
-
-        class FakeRequest:
-            url = "https://example.test/book.pdf"
-
-        context = FakeContext()
-        with patch("document_extractor.engine.PDF_RANGE_CHUNK_BYTES", 4):
-            recovered = _fetch_pdf_in_ranges(
-                context, FakeRequest(), {"cookie": "session=test"}, len(payload)
-            )
-
-        self.assertEqual(recovered, payload)
-        self.assertEqual(
-            context.request.ranges,
-            [(0, 3), (4, 7), (8, 11), (12, 15), (16, 16)],
-        )
-        self.assertEqual(context.request.assertions, ("GET", 60_000))
-
+class PdfRecoveryPromptTests(unittest.TestCase):
     def test_interactive_recovery_is_offered_only_for_one_complete_tree(self):
         args = type("Args", (), {"interactive": True, "inspect": False})()
         diagnostics = {
@@ -666,9 +868,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--output",
                     temp,
@@ -676,6 +876,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -732,9 +933,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--scope",
@@ -745,6 +944,8 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=120,
             )
@@ -763,9 +964,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "original",
@@ -777,6 +976,8 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 timeout=120,
             )
@@ -816,9 +1017,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--scope",
@@ -829,6 +1028,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -845,9 +1045,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "original",
@@ -859,6 +1057,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -893,9 +1092,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--output",
@@ -904,6 +1101,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -926,9 +1124,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "pdf",
@@ -938,6 +1134,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -963,9 +1160,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "cbz",
@@ -975,6 +1170,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=180,
             )
@@ -1002,9 +1198,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "pdf",
@@ -1014,6 +1208,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1046,32 +1241,6 @@ class EndToEndDetectionTests(unittest.TestCase):
             )
 
     @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
-    def test_detached_page_tree_inspector_is_independent_and_read_only(self):
-        diagnostics = inspect_detached_page_trees(DETACHED_TREE_PDF)
-        self.assertEqual(diagnostics["visible_page_count"], 3)
-        trees = diagnostics["detached_ordered_page_trees"]
-        self.assertEqual(len(trees), 1)
-        self.assertEqual(trees[0]["declared_count"], 10)
-        self.assertEqual(trees[0]["resolved_page_count"], 10)
-        self.assertTrue(trees[0]["count_matches_resolved"])
-        self.assertEqual(trees[0]["visible_prefix_matches"], 3)
-        self.assertEqual(trees[0]["continuation_count"], 7)
-        self.assertTrue(trees[0]["is_structurally_complete"])
-
-    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
-    def test_detached_page_tree_recovery_creates_a_valid_complete_pdf(self):
-        import pikepdf
-        from io import BytesIO
-
-        recovered, details = recover_detached_page_tree(DETACHED_TREE_PDF, 10)
-        self.assertEqual(details["source_visible_page_count"], 3)
-        self.assertEqual(details["recovered_page_count"], 10)
-        self.assertEqual(details["continuation_page_count"], 7)
-        with pikepdf.Pdf.open(BytesIO(recovered)) as document:
-            self.assertEqual(len(document.pages), 10)
-            self.assertEqual(document.Root.Pages.get("/Count"), 10)
-
-    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
     def test_network_pdf_recovery_requires_explicit_authorized_option(self):
         import pikepdf
 
@@ -1085,9 +1254,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "pdf",
@@ -1098,6 +1265,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1114,6 +1282,40 @@ class EndToEndDetectionTests(unittest.TestCase):
             self.assertEqual(manifest["source_visible_page_count"], 3)
             self.assertTrue(manifest["recovered_from_detached_tree"])
             self.assertEqual(manifest["publication"]["status"], "complete")
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_authorized_inspection_validates_detached_recovery_without_writing(self):
+        project = Path(__file__).resolve().parents[1]
+        url = (
+            f"http://127.0.0.1:{self.server.server_port}"
+            "/network-pdf-reader-incomplete"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+            result = subprocess.run(
+                [
+                    *extractor_command(),
+                    url,
+                    "--inspect",
+                    "--recover-detached-pdf",
+                    "--output",
+                    temp,
+                ],
+                cwd=project,
+                env=env,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=120,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("[RÉCUPÉRÉ]", result.stdout)
+            self.assertIn("10 pages", result.stdout)
+            self.assertFalse((Path(temp) / "document.pdf").exists())
+            self.assertFalse((Path(temp) / "pages.json").exists())
 
     @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
     def test_interactive_original_mode_keeps_pdf_and_requests_recovery(self):
@@ -1167,9 +1369,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "original",
@@ -1179,6 +1379,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1189,6 +1390,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
             self.assertEqual(manifest["output_format"], "epub")
             self.assertEqual(manifest["resource_unit"], "epub_document")
+
             self.assertEqual(manifest["epub_spine_items"], 2)
 
     def test_incomplete_network_epub_is_reported_and_not_saved(self):
@@ -1202,9 +1404,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "original",
@@ -1214,12 +1414,13 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn("[INCOMPLET] EPUB", result.stdout)
-            self.assertIn("1 document(s) de lecture", result.stdout)
+            self.assertIn("1 document(s) annoncé(s) sont absents", result.stdout)
             self.assertFalse((Path(temp) / "document.epub").exists())
             manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
             self.assertEqual(manifest["publication"]["status"], "incomplete")
@@ -1240,9 +1441,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--output",
@@ -1251,12 +1450,13 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn(
-                "[ANNULÉ] Extraction refusée : 2/3 document(s) disponible(s), "
+                "[ANNULÉ] Extraction refusée : 2/3 document(s), "
                 "1 manquant(s).",
                 result.stdout,
             )
@@ -1274,9 +1474,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "pdf",
@@ -1286,6 +1484,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=180,
             )
@@ -1296,6 +1495,13 @@ class EndToEndDetectionTests(unittest.TestCase):
             manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
             self.assertEqual(manifest["output_format"], "pdf")
             self.assertEqual(manifest["resource_unit"], "epub_document")
+            if importlib.util.find_spec("pypdfium2"):
+                import pypdfium2 as pdfium
+                with pdfium.PdfDocument(artifact) as document:
+                    for index in range(2):
+                        text = document[index].get_textpage().get_text_range()
+                        self.assertIn(f"Section {index + 1}", text)
+                        self.assertIn("Contenu EPUB de test", text)
 
     @unittest.skipUnless(
         importlib.util.find_spec("pikepdf")
@@ -1310,9 +1516,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "images",
@@ -1322,6 +1526,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=180,
             )
@@ -1338,9 +1543,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--output",
@@ -1349,6 +1552,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1365,9 +1569,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--chapters",
                     "1-2",
@@ -1377,6 +1579,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1389,7 +1592,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             self.assertEqual(publication["type"], "work")
             self.assertEqual(publication["chapter_count"], 3)
             self.assertEqual(publication["selected_chapter_count"], 2)
-            self.assertEqual(publication["status"], "complete")
+            self.assertEqual(publication["status"], "incomplete")
             self.assertEqual(
                 [chapter["status"] for chapter in publication["chapters"]],
                 ["complete", "complete"],
@@ -1407,6 +1610,53 @@ class EndToEndDetectionTests(unittest.TestCase):
                     )
             self.assertFalse((root / ".komaforge-work").exists())
 
+    def test_incremental_work_download_preserves_and_completes_the_manifest(self):
+        project = Path(__file__).resolve().parents[1]
+        url = f"http://127.0.0.1:{self.server.server_port}/work"
+        with tempfile.TemporaryDirectory() as temp:
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(project / "src")
+
+            for selection in ("1", "2-3"):
+                result = subprocess.run(
+                    [
+                        *extractor_command(),
+                        url,
+                        "--chapters",
+                        selection,
+                        "--output",
+                        temp,
+                    ],
+                    cwd=project,
+                    env=env,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    capture_output=True,
+                    timeout=120,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            root = Path(temp)
+            publication = json.loads(
+                (root / "publication.json").read_text(encoding="utf-8")
+            )["publication"]
+            self.assertEqual(publication["part_count"], 3)
+            self.assertEqual(publication["selected_part_count"], 3)
+            self.assertEqual(publication["status"], "complete")
+            self.assertEqual(
+                [chapter["number"] for chapter in publication["chapters"]],
+                ["1", "2", "3"],
+            )
+            self.assertEqual(
+                [path.name for path in sorted((root / "chapters").glob("*.cbz"))],
+                [
+                    "001-Chapitre-1.cbz",
+                    "002-Chapitre-2.cbz",
+                    "003-Chapitre-3.cbz",
+                ],
+            )
+
     def test_select_menu_creates_one_image_folder_per_selected_volume(self):
         project = Path(__file__).resolve().parents[1]
         url = f"http://127.0.0.1:{self.server.server_port}/select-work"
@@ -1415,9 +1665,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--chapters",
                     "1-2",
@@ -1429,6 +1677,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1472,9 +1721,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--output",
                     temp,
@@ -1482,6 +1729,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1499,9 +1747,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--expected",
                     "6",
@@ -1511,6 +1757,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1528,9 +1775,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--output",
                     temp,
@@ -1542,6 +1787,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )

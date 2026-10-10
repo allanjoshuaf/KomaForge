@@ -524,6 +524,13 @@ def create_pdf_from_epub_bytes(
             page_pdfs: list[Path] = []
             for index, relative in enumerate(info["spine_paths"], start=1):
                 source = source_root.joinpath(*PurePosixPath(relative).parts)
+                try:
+                    ElementTree.fromstring(source.read_bytes())
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Section XHTML EPUB invalide : {relative}. "
+                        "La conversion est arrêtée pour éviter d'imprimer une page d'erreur."
+                    ) from exc
                 page_pdf = root / f"section-{index:04d}.pdf"
                 _render_svg_pdf_with_chrome(
                     chrome_executable,

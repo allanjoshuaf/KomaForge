@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import zipfile
 import zlib
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +20,7 @@ from document_extractor.formats import (
     inspect_epub,
     render_pdf_bytes_to_images,
     create_selected_output,
+    create_pdf_from_epub_bytes,
     remove_validated_work_directory,
 )
 from tests.mock_site import INCOMPLETE_EPUB, NETWORK_EPUB, NETWORK_PDF
@@ -102,6 +104,23 @@ class OutputFormatTests(unittest.TestCase):
             ["OEBPS/one.xhtml", "OEBPS/two.xhtml"],
         )
         self.assertTrue(info["is_structurally_complete"])
+
+    @unittest.skipUnless(importlib.util.find_spec("pikepdf"), "pikepdf absent")
+    def test_malformed_epub_section_is_refused_before_printing(self):
+        broken = BytesIO()
+        with zipfile.ZipFile(BytesIO(NETWORK_EPUB)) as original, zipfile.ZipFile(broken, "w") as archive:
+            for item in original.infolist():
+                data = original.read(item.filename)
+                if item.filename == "OEBPS/one.xhtml":
+                    data = b"<!doctype html><html><body>invalid XML</body></html>"
+                archive.writestr(item, data)
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "book.pdf"
+            with patch("document_extractor.formats._render_svg_pdf_with_chrome") as render:
+                with self.assertRaisesRegex(RuntimeError, "Section XHTML EPUB invalide"):
+                    create_pdf_from_epub_bytes(broken.getvalue(), destination, Path(__file__))
+                render.assert_not_called()
+            self.assertFalse(destination.exists())
 
     def test_epub_inspection_finds_documents_named_but_absent(self):
         info = inspect_epub(INCOMPLETE_EPUB)

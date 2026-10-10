@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "komaforge"
-version = "0.4.0"
+version = "0.5.0"
 description = "Extracteur CLI de publications web vers CBZ, CBR, PDF, EPUB ou images"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,6 +19,10 @@ conversion = ["pikepdf>=10,<11", "pypdfium2>=4,<5"]
 
 [project.scripts]
 komaforge = "document_extractor.cli:main"
+komaforge-jobs = "document_extractor.jobs_cli:main"
+komaforge-library = "document_extractor.library_cli:main"
+komaforge-sources = "document_extractor.source_cli:main"
+komaforge-doctor = "document_extractor.doctor_cli:main"
 document-extractor = "document_extractor.cli:main"
 
 [tool.setuptools.packages.find]
