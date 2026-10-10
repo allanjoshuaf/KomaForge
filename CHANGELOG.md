@@ -2,7 +2,24 @@
 
 Toutes les modifications notables de KomaForge sont consignées ici.
 
-## Non publié
+## 0.5.0 — 2026-10-10
+
+- distribution Windows portable avec Python inclus, empreinte SHA-256 et installation
+  du raccourci principal dans un dossier de version isolé ; les mises à jour restent
+  explicites et ne remplacent ni les archives ni les données de lecture ;
+- séparation de l'extraction d'une partie, des documents directs, des contrôles de
+  lecteur, de la navigation eBooks et de la collecte d'images ; les anciens imports
+  restent compatibles et l'orchestrateur ne contient plus les implémentations propres
+  à chaque famille de lecteur ;
+- diagnostics de couverture, conversion, transport et progression traduits en
+  français, anglais, russe et chinois ; sortie UTF-8 sur les deux flux Windows ;
+- capture Scribd limitée au rectangle de la page dans une fenêtre adaptée, contrôle
+  des couches de texte conservé et libération des données image pendant l'inspection ;
+- validation navigateur supplémentaire de la lecture, de la fermeture, de la reprise
+  persistante et de la fin de lecture ; scénarios d'extraction réutilisables contre
+  l'exécutable portable, pas seulement contre les sources Python ;
+- refus de la conversion d'une section XHTML invalide : un PDF imprimant l'erreur
+  du navigateur n'est plus présenté comme une conversion réussie ;
 
 - la production des PDF/EPUB directs et celle des archives issues de pages image
   vivent maintenant dans des services séparés de l'orchestrateur principal ;

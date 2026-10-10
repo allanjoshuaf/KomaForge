@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .diagnostic_ui import localize_diagnostic
 
 import argparse
 import os
@@ -14,6 +15,7 @@ from .terminal_ui import (
     SUPPORTED_LANGUAGES,
     TerminalUI,
     choose_language,
+    ensure_utf8_stream,
     normalize_language,
     tr,
 )
@@ -244,6 +246,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_utf8_stream(sys.stdout)
+    ensure_utf8_stream(sys.stderr)
     values = list(sys.argv[1:] if argv is None else argv)
     if values:
         command = values[0].casefold()
@@ -287,5 +291,5 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{ui.text('cancelled')}", file=sys.stderr)
         return 130
     except Exception as exc:
-        print(f"\n{ui.text('error')} : {exc}", file=sys.stderr)
+        print(f"\n{ui.text('error')} : {localize_diagnostic(str(exc), args.language)}", file=sys.stderr)
         return 1

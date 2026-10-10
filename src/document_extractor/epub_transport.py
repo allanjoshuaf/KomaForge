@@ -1,6 +1,7 @@
 """Browser-session transport and validation for EPUB resources."""
 
 from __future__ import annotations
+from .diagnostic_ui import diagnostic_print as print, diagnostic_input as input
 
 from .formats import inspect_epub
 from .terminal_ui import rt

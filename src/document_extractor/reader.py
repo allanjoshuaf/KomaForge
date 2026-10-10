@@ -1,6 +1,7 @@
 """Local, browser-based reader for validated CBZ and image-folder artifacts."""
 
 from __future__ import annotations
+from .diagnostic_ui import diagnostic_print as print
 
 import html
 import json

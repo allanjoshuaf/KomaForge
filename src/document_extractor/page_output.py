@@ -1,6 +1,7 @@
 """Production d'un artefact à partir de pages image ou SVG détectées."""
 
 from __future__ import annotations
+from .diagnostic_ui import diagnostic_print as print, diagnostic_input as input
 
 from dataclasses import dataclass
 from pathlib import Path

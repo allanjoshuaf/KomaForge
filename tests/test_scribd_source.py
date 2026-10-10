@@ -168,6 +168,18 @@ class ScribdSourceTests(unittest.TestCase):
         )
         self.assertTrue(page.hidden_overlays)
 
+    def test_inspection_validates_pages_without_retaining_image_bytes(self):
+        route = resolve_source(SOURCE_URL)
+        session = SourceSession(page=FakePage(), options={"inspect": True})
+        publication = load_source_publication(
+            route, SourceReference(route.adapter.id, SOURCE_URL, SOURCE_URL), session,
+        )
+        resources = route.adapter.get_resources(publication.parts[0], session)
+        self.assertEqual(resources.coverage.status, CoverageStatus.COMPLETE)
+        self.assertEqual(len(resources.resources), 3)
+        self.assertTrue(all("_embedded_data" not in item.metadata for item in resources.resources))
+        self.assertGreater(resources.resources[0].metadata["rendered_text_characters"], 0)
+
     def test_access_gate_is_not_archived_as_a_successful_page(self):
         route = resolve_source(SOURCE_URL)
         page = GatedPage()

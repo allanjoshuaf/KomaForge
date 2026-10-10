@@ -1,6 +1,7 @@
 """Production des artefacts issus de documents PDF ou EPUB directs."""
 
 from __future__ import annotations
+from .diagnostic_ui import diagnostic_print as print, diagnostic_input as input
 
 import hashlib
 from dataclasses import dataclass

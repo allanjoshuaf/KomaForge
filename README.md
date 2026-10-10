@@ -45,6 +45,19 @@ site.
 
 ## Architecture interne
 
+### Windows sans installation de Python
+
+Téléchargez le ZIP Windows et `SHA256SUMS.txt` depuis les
+[versions publiées](https://github.com/allanjoshuaf/KomaForge/releases/latest).
+Extrayez le dossier complet puis lancez `KomaForge.exe`. Pour installer ou mettre
+à jour l'icône **KomaForge** du Bureau, lancez `Install-KomaForge.ps1` inclus dans
+le même dossier. Google Chrome reste nécessaire ; WinRAR est facultatif pour CBR.
+Les versions sont conservées séparément, sans remplacer vos extractions ni votre
+progression de lecture. Il n'y a pas de téléchargement automatique de code.
+Consultez [les instructions portables](scripts/PORTABLE.md) pour vérifier l'empreinte.
+
+### Services du moteur
+
 KomaForge sépare désormais trois responsabilités :
 
 - **Core** orchestre une inspection ou une extraction, applique les preuves de

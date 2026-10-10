@@ -68,12 +68,16 @@ def _hide_external_overlays(page) -> int:
               const pages = Array.from(
                 document.querySelectorAll('[id^="outer_page_"]')
               );
+              const ancestors = new Set();
+              for (const page of pages) {
+                for (let parent = page.parentElement; parent; parent = parent.parentElement) {
+                  ancestors.add(parent);
+                }
+              }
               let hidden = 0;
               for (const node of document.querySelectorAll('body *')) {
                 if (
-                  pages.some(page =>
-                    page === node || page.contains(node) || node.contains(page)
-                  )
+                  node.closest('[id^="outer_page_"]') || ancestors.has(node)
                 ) {
                   continue;
                 }
@@ -301,8 +305,7 @@ def _wait_for_rendered_page(page, locator) -> None:
 def _capture_page_png(page, locator, cdp_session) -> bytes:
     if cdp_session is None:
         return locator.screenshot(type="png", scale="css", timeout=30_000)
-    bounds = locator.evaluate(
-        """
+    bounds_script = """
         node => {
           const rect = node.getBoundingClientRect();
           return {
@@ -313,13 +316,35 @@ def _capture_page_png(page, locator, cdp_session) -> bytes:
           };
         }
         """
-    )
+    bounds = locator.evaluate(bounds_script)
+    viewport = getattr(page, "viewport_size", None)
+    if isinstance(viewport, dict):
+        required = {
+            "width": max(viewport["width"], int(bounds["width"]) + 80),
+            "height": max(viewport["height"], int(bounds["height"]) + 80),
+        }
+        if required != viewport:
+            page.set_viewport_size(required)
+            locator.scroll_into_view_if_needed(timeout=30_000)
+            _wait_for_rendered_page(page, locator)
+            bounds = locator.evaluate(bounds_script)
+    else:
+        # CDP-connected Chrome has no Playwright viewport until configured.
+        viewport = page.evaluate("() => ({width: innerWidth, height: innerHeight})")
+        if isinstance(viewport, dict):
+            page.set_viewport_size({
+                "width": max(int(viewport["width"]), int(bounds["width"]) + 80),
+                "height": max(int(viewport["height"]), int(bounds["height"]) + 80),
+            })
+            locator.scroll_into_view_if_needed(timeout=30_000)
+            _wait_for_rendered_page(page, locator)
+            bounds = locator.evaluate(bounds_script)
     capture = cdp_session.send(
         "Page.captureScreenshot",
         {
             "format": "png",
             "fromSurface": True,
-            "captureBeyondViewport": True,
+            "captureBeyondViewport": False,
             "clip": {
                 "x": max(0, float(bounds["x"])),
                 "y": max(0, float(bounds["y"])),
@@ -330,6 +355,8 @@ def _capture_page_png(page, locator, cdp_session) -> bytes:
         },
     )
     return base64.b64decode(capture["data"], validate=True)
+
+
 
 
 def _png_ink_ratio(page, data: bytes) -> float | None:
@@ -409,6 +436,7 @@ def _render_resources(
     expected: int | None,
     progress=None,
     access_gate_prompt=None,
+    inspect_only: bool = False,
 ) -> ResourceSet:
     page_numbers = _page_numbers(page)
     if not page_numbers:
@@ -516,7 +544,7 @@ def _render_resources(
                     media_type="image/png",
                     filename=f"page-{page_number:04d}.png",
                     metadata={
-                        "_embedded_data": data,
+                        **({} if inspect_only else {"_embedded_data": data}),
                         "_embedded_content_type": "image/png",
                         "document_index": page_number,
                         "rendered_text_characters": text_length,
@@ -667,4 +695,5 @@ class ScribdSource:
             expected=expected,
             progress=session.options.get("resource_progress"),
             access_gate_prompt=session.options.get("access_gate_prompt"),
+            inspect_only=bool(session.options.get("inspect")),
         )

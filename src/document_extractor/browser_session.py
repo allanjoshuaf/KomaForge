@@ -1,6 +1,7 @@
 """Chrome session lifecycle and bounded source navigation."""
 
 from __future__ import annotations
+from .diagnostic_ui import diagnostic_print as print, diagnostic_input as input
 
 import json
 import shutil

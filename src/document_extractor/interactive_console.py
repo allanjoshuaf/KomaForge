@@ -1,6 +1,7 @@
 """Interactive platform menus used by the desktop shortcut."""
 
 from __future__ import annotations
+from .diagnostic_ui import localize_diagnostic, set_diagnostic_language
 
 from pathlib import Path
 
@@ -1232,6 +1233,7 @@ def interactive_hub(
 ) -> str:
     """Return the selected extraction mode after handling platform submenus."""
 
+    set_diagnostic_language(ui.language)
     while True:
         ui.section(ui.text("menu_title"))
         ui.option(1, ui.text("menu_auto"), ui.text("menu_auto_hint"))
@@ -1267,7 +1269,7 @@ def interactive_hub(
                     if check.status == "warn"
                     else "error"
                 )
-                ui.notice(f"{check.id} · {check.summary}", level)
+                ui.notice(f"{check.id} · {localize_diagnostic(check.summary, ui.language)}", level)
         elif choice == "7":
             raise SystemExit(0)
         else:

@@ -150,7 +150,7 @@ def make_epub() -> bytes:
         for number in (1, 2):
             archive.writestr(
                 f"OEBPS/{'one' if number == 1 else 'two'}.xhtml",
-                f"""<!doctype html><html xmlns="http://www.w3.org/1999/xhtml">
+                f"""<!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml">
 <head><meta charset="utf-8"/><title>Section {number}</title></head>
 <body><h1>Section {number}</h1><p>Contenu EPUB de test.</p></body></html>""",
             )

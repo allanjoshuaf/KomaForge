@@ -9,6 +9,7 @@ from pathlib import Path
 from .detection import ExpectedCount, select_chapters
 from .models import Confidence, Part, Publication
 from .paths import canonical_source_identity, safe_slug
+from .diagnostic_ui import localize_diagnostic
 
 
 @dataclass(frozen=True)
@@ -193,7 +194,7 @@ def localized_runtime_value(value: str, language: str) -> str:
             "zh": "浏览器内部资源",
         },
     }
-    return translations.get(value, {}).get(language, value)
+    return translations.get(value, {}).get(language, localize_diagnostic(value, language))
 
 
 def resolve_part_selection(

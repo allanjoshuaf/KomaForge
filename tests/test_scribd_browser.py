@@ -6,6 +6,7 @@ from playwright.sync_api import sync_playwright
 
 from document_extractor.formats import find_chrome_executable
 from document_extractor.sources.scribd import (
+    _capture_page_png,
     _access_gate_state,
     _hide_external_overlays,
     _png_ink_ratio,
@@ -128,6 +129,24 @@ class ScribdBrowserTests(unittest.TestCase):
         self.assertIsNotNone(printed_ratio)
         self.assertLess(blank_ratio, 0.0005)
         self.assertGreater(printed_ratio, 0.0005)
+
+    def test_deep_page_capture_keeps_bottom_text_without_full_document_surface(self):
+        self.page.set_content(
+            '<div style="height: 220000px"></div>'
+            '<section id="outer_page_1" style="width:600px;height:1200px;background:white">'
+            '<h1>Россия: верх страницы</h1>'
+            '<p style="padding-top:950px">Нижняя строка</p></section>'
+        )
+        target = self.page.locator("#outer_page_1")
+        target.scroll_into_view_if_needed()
+        cdp = self.page.context.new_cdp_session(self.page)
+        try:
+            image = _capture_page_png(self.page, target, cdp)
+        finally:
+            cdp.detach()
+        self.assertGreater(_png_ink_ratio(self.page, image), 0.0005)
+        import struct
+        self.assertEqual(struct.unpack(">II", image[16:24]), (600, 1200))
 
 
 if __name__ == "__main__":

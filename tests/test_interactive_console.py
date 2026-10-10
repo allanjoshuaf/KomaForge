@@ -47,7 +47,7 @@ class InteractiveConsoleTests(unittest.TestCase):
             mode = interactive_hub(ui)
 
         self.assertEqual(mode, "guided")
-        self.assertIn("chrome · Chrome executable found", stream.getvalue())
+        self.assertIn("chrome · Exécutable Chrome trouvé", stream.getvalue())
 
     def test_sources_are_visible_before_returning_to_extraction(self):
         stream = StringIO()

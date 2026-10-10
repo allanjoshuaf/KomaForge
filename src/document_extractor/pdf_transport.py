@@ -1,6 +1,7 @@
 """Browser-session transport and validation for PDF resources."""
 
 from __future__ import annotations
+from .diagnostic_ui import diagnostic_print as print, diagnostic_input as input
 
 from .pdf_structure import inspect_detached_page_trees
 

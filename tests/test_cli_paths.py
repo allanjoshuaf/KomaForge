@@ -46,7 +46,8 @@ class PortablePathTests(unittest.TestCase):
             with patch("sys.stdout") as stdout:
                 build_parser().parse_args(["--version"])
         self.assertEqual(exit_context.exception.code, 0)
-        self.assertIn("komaforge 0.4.0", stdout.write.call_args.args[0])
+        from document_extractor import __version__
+        self.assertIn(f"komaforge {__version__}", stdout.write.call_args.args[0])
 
     def test_slug_is_portable(self):
         self.assertEqual(safe_slug("Page spéciale / 185"), "Page-speciale-185")

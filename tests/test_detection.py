@@ -44,6 +44,12 @@ from tests.mock_site import NETWORK_EPUB, PNG, SVG
 from tests.mock_site import MockDocumentHandler
 
 
+def extractor_command() -> list[str]:
+    """Run browser scenarios against source or the portable executable."""
+    executable = os.environ.get("KOMAFORGE_EXECUTABLE")
+    return [executable] if executable else [sys.executable, "-m", "document_extractor"]
+
+
 class QuietThreadingHTTPServer(ThreadingHTTPServer):
     def handle_error(self, request, client_address):
         _type, error, _traceback = sys.exc_info()
@@ -660,10 +666,10 @@ class NavigationRecoveryTests(unittest.TestCase):
         args = SimpleNamespace(interactive=True, wait_for_user=False)
         expected = {"passed": True, "encountered": True, "waited_ms": 0}
         with patch(
-            "document_extractor.engine.access_interstitial_state",
+            "document_extractor.chapter_extraction.access_interstitial_state",
             return_value={"active": True, "title": "Just a moment"},
         ), patch(
-            "document_extractor.engine.wait_for_access_interstitial",
+            "document_extractor.chapter_extraction.wait_for_access_interstitial",
             return_value=expected,
         ), patch("builtins.input", return_value="") as prompt:
             result = _complete_access_check(object(), args)
@@ -862,9 +868,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--output",
                     temp,
@@ -872,6 +876,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -928,9 +933,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--scope",
@@ -961,9 +964,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "original",
@@ -1016,9 +1017,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--scope",
@@ -1029,6 +1028,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1045,9 +1045,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "original",
@@ -1059,6 +1057,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1093,9 +1092,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--output",
@@ -1104,6 +1101,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1126,9 +1124,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "pdf",
@@ -1138,6 +1134,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1163,9 +1160,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "cbz",
@@ -1175,6 +1170,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=180,
             )
@@ -1202,9 +1198,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "pdf",
@@ -1214,6 +1208,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1259,9 +1254,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "pdf",
@@ -1272,6 +1265,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1301,9 +1295,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--recover-detached-pdf",
@@ -1377,9 +1369,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "original",
@@ -1389,6 +1379,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1399,6 +1390,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
             self.assertEqual(manifest["output_format"], "epub")
             self.assertEqual(manifest["resource_unit"], "epub_document")
+
             self.assertEqual(manifest["epub_spine_items"], 2)
 
     def test_incomplete_network_epub_is_reported_and_not_saved(self):
@@ -1412,9 +1404,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "original",
@@ -1424,12 +1414,13 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn("[INCOMPLET] EPUB", result.stdout)
-            self.assertIn("1 document(s) de lecture", result.stdout)
+            self.assertIn("1 document(s) annoncé(s) sont absents", result.stdout)
             self.assertFalse((Path(temp) / "document.epub").exists())
             manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
             self.assertEqual(manifest["publication"]["status"], "incomplete")
@@ -1450,9 +1441,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--output",
@@ -1461,12 +1450,13 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn(
-                "[ANNULÉ] Extraction refusée : 2/3 document(s) disponible(s), "
+                "[ANNULÉ] Extraction refusée : 2/3 document(s), "
                 "1 manquant(s).",
                 result.stdout,
             )
@@ -1484,9 +1474,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "pdf",
@@ -1496,6 +1484,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=180,
             )
@@ -1506,6 +1495,13 @@ class EndToEndDetectionTests(unittest.TestCase):
             manifest = json.loads((Path(temp) / "pages.json").read_text("utf-8"))
             self.assertEqual(manifest["output_format"], "pdf")
             self.assertEqual(manifest["resource_unit"], "epub_document")
+            if importlib.util.find_spec("pypdfium2"):
+                import pypdfium2 as pdfium
+                with pdfium.PdfDocument(artifact) as document:
+                    for index in range(2):
+                        text = document[index].get_textpage().get_text_range()
+                        self.assertIn(f"Section {index + 1}", text)
+                        self.assertIn("Contenu EPUB de test", text)
 
     @unittest.skipUnless(
         importlib.util.find_spec("pikepdf")
@@ -1520,9 +1516,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--format",
                     "images",
@@ -1532,6 +1526,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=180,
             )
@@ -1548,9 +1543,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--inspect",
                     "--output",
@@ -1559,6 +1552,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1575,9 +1569,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--chapters",
                     "1-2",
@@ -1587,6 +1579,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1627,9 +1620,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             for selection in ("1", "2-3"):
                 result = subprocess.run(
                     [
-                        sys.executable,
-                        "-m",
-                        "document_extractor",
+                        *extractor_command(),
                         url,
                         "--chapters",
                         selection,
@@ -1674,9 +1665,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--chapters",
                     "1-2",
@@ -1688,6 +1677,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1731,9 +1721,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--output",
                     temp,
@@ -1741,6 +1729,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1758,9 +1747,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--expected",
                     "6",
@@ -1770,6 +1757,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
@@ -1787,9 +1775,7 @@ class EndToEndDetectionTests(unittest.TestCase):
             env["PYTHONPATH"] = str(project / "src")
             result = subprocess.run(
                 [
-                    sys.executable,
-                    "-m",
-                    "document_extractor",
+                    *extractor_command(),
                     url,
                     "--output",
                     temp,
@@ -1801,6 +1787,7 @@ class EndToEndDetectionTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 capture_output=True,
                 timeout=120,
             )
