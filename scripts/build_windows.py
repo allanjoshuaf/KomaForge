@@ -29,7 +29,14 @@ def main() -> None:
         "--hidden-import", "PIL.Image", "--add-data", f"{ROOT / 'assets'};assets",
         str(ROOT / "extract.py"),
     ], cwd=ROOT, check=True)
+    package_portable(bundle_name)
+
+
+def package_portable(bundle_name: str) -> None:
+    dist = ROOT / "dist" / bundle_name
     app = dist / "KomaForge"
+    if not (app / "KomaForge.exe").is_file():
+        raise RuntimeError("Build KomaForge.exe before packaging")
     for name in ("LICENSE", "README.md", "CHANGELOG.md"):
         shutil.copy2(ROOT / name, app / name)
     shutil.copy2(ROOT / "scripts" / "Install-KomaForge.ps1", app)

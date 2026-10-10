@@ -14,5 +14,10 @@ script d'installation. Chaque version est rangee dans un dossier distinct ; les
 donnees de lecture ne sont pas remplacees. Aucun telechargement automatique de
 code n'a lieu au demarrage.
 
+Un dossier d'installation personnalise est possible avec
+`Install-KomaForge.ps1 -InstallRoot "$env:USERPROFILE\Apps\KomaForge\Releases"`.
+Le raccourci pointe directement sur la version installee et ne depend pas du dossier
+depuis lequel l'installation a ete lancee.
+
 L'executable n'est pas signe avec un certificat commercial. Les sources et
 SHA256SUMS.txt permettent de verifier la provenance du paquet.

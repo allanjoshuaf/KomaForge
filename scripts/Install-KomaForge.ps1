@@ -1,4 +1,4 @@
-param([string]$Version = "")
+param([string]$Version = "", [string]$InstallRoot = "")
 $ErrorActionPreference = "Stop"
 
 $source = $PSScriptRoot
@@ -13,7 +13,11 @@ if ($LASTEXITCODE -ne 0 -or $reported -notmatch '^komaforge (\d+\.\d+\.\d+)$') {
 $actualVersion = $Matches[1]
 if ($Version -and $Version -ne $actualVersion) { throw "Version demandee differente de l'executable" }
 $Version = $actualVersion
-$base = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) "KomaForge\Releases"
+$base = if ($InstallRoot) {
+    [IO.Path]::GetFullPath($InstallRoot)
+} else {
+    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) "KomaForge\Releases"
+}
 $destination = Join-Path $base $Version
 if (-not (Test-Path -LiteralPath $destination)) {
     $staging = Join-Path $base "$Version-install-$([Guid]::NewGuid().ToString('N'))"
