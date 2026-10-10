@@ -21,3 +21,4 @@ depuis lequel l'installation a ete lancee.
 
 L'executable n'est pas signe avec un certificat commercial. Les sources et
 SHA256SUMS.txt permettent de verifier la provenance du paquet.
+Les licences de Python et des dependances sont incluses dans THIRD-PARTY-LICENSES.

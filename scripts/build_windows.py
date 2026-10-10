@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from importlib import metadata
 import shutil
 import subprocess
 import sys
@@ -41,6 +42,20 @@ def package_portable(bundle_name: str) -> None:
         shutil.copy2(ROOT / name, app / name)
     shutil.copy2(ROOT / "scripts" / "Install-KomaForge.ps1", app)
     shutil.copy2(ROOT / "scripts" / "PORTABLE.md", app / "LISEZ-MOI.md")
+    notices = app / "THIRD-PARTY-LICENSES"
+    notices.mkdir(exist_ok=True)
+    shutil.copy2(Path(sys.base_prefix) / "LICENSE.txt", notices / "Python.txt")
+    for distribution in metadata.distributions():
+        if distribution.metadata["Name"].casefold() == "komaforge":
+            continue
+        for file in distribution.files or ():
+            if not any(part.endswith(".dist-info") for part in file.parts):
+                continue
+            if not file.name.upper().startswith(("LICENSE", "COPYING", "NOTICE")):
+                continue
+            destination = notices / distribution.metadata["Name"] / file.name
+            destination.parent.mkdir(exist_ok=True)
+            shutil.copy2(distribution.locate_file(file), destination)
     archive = Path(shutil.make_archive(str(ROOT / "dist" / bundle_name), "zip", dist))
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     checksums = ROOT / "dist" / "SHA256SUMS.txt"
