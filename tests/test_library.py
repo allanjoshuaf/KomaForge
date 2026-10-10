@@ -323,7 +323,7 @@ class LibraryIndexTests(unittest.TestCase):
                 [item["title"] for item in index.list_downloaded()],
                 ["Duplicate"],
             )
-            self.assertEqual(index.artifact_paths(publication["id"]), (artifact,))
+            self.assertEqual(index.artifact_paths(publication["id"]), (artifact.resolve(),))
 
     def test_artifact_paths_cannot_escape_the_publication_folder(self):
         with tempfile.TemporaryDirectory() as temp:
